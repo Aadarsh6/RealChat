@@ -9,7 +9,7 @@ const ChatListPage = () => {
 
     useEffect(()=>{
         async function fetchUser() {
-            const res = await axios.get("/api/users");
+            const res = await axios.get("/api/v1/users");
             setUser(res.data)
         }
         fetchUser()
