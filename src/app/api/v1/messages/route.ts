@@ -1,92 +1,77 @@
 import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
-import { Inclusive_Sans } from "next/font/google";
 import { NextResponse } from "next/server";
 
+const prisma = new PrismaClient();
 
-const prisma = new PrismaClient()
-export async function POST(res: Request) {
-    const { userId } = auth()
-    if(!userId) return NextResponse.json({ error: "unauthorised" },{ status: 401 })
+export async function POST(req: Request) {
+    //@ts-ignore
+    const { userId } = await auth(req); // Pass req to auth()
+    if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-        const body = await res.json()
-        const { receiverId, content } = body;
+    const body = await req.json();
+    const { receiverId, content } = body;
 
-    if(!receiverId || !content) return NextResponse.json({error: "Missing inputs"}, {status: 400});
+    if (!receiverId || !content) {
+        return NextResponse.json({ error: "Missing inputs" }, { status: 400 });
+    }
 
     try {
         const message = await prisma.message.create({
-            data:{
+            data: {
                 content,
-                sender: {connect: {clerkId: userId}},  
-
-//!For the sender, Clerk forces you to start with clerkId since that’s what auth gives you.
-//!For the receiver, it’s easier and more natural to pass around your own local id inside the app — because that’s how relations are wired in your DB (Message.receiverId → User.id).
-
-                receiver: {connect: {id: receiverId}}
+                sender: { connect: { clerkId: userId } },
+                receiver: { connect: { id: receiverId } }
             },
-            include:{
+            include: {
                 sender: true,
                 receiver: true,
             }
         });
-
-        
-        return NextResponse.json(message, {status: 201})
-        
+        return NextResponse.json(message, { status: 201 });
     } catch (error) {
         console.error(error);
-        return NextResponse.json({error:"failed to send message"}, {status: 500})
-        
+        return NextResponse.json({ error: "failed to send message" }, { status: 500 });
     }
 }
 
-//?GET req for message with user id
-
 export async function GET(req: Request) {
-    const { userId } = auth()
-    if(!userId) return NextResponse.json({ error: "unauthorised" },{ status: 401 })
+    //@ts-ignore
+    const { userId } = await auth(req); // Pass req to auth()
+    if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
+    const { searchParams } = new URL(req.url);
+    const withUserId = searchParams.get("with");
 
-        const { searchParams } = new URL(req.url)
-        const withUserId = searchParams.get("with");
+    if (!withUserId) {
+        return NextResponse.json({ error: "Missing query params" }, { status: 400 });
+    }
 
-        if(!withUserId) return NextResponse.json({error:"Missing query params"}, {status: 400})
-
-            try {
-                const message = await prisma.message.findMany({
-                    where: {
-                        OR:
-                    [
-                         // Current user is sender, other user is receiver
-                        {
-                            sender: {clerkId: userId},
-                            receiver: {id: withUserId}
-                        },
-                        // Other user is sender, current user is receiver 
-                        { 
-                            sender: { id: withUserId }, 
-                            receiver: { clerkId: userId } 
-                        },
-                    ],
-                },
-                    orderBy:{ createdAt: "asc"},
-                    include:{
-                        sender: true,
-                        receiver: true,
-                },
-                });
-                                            // In your GET messages route, add:
-console.log('userId from auth:', userId);
-console.log('withUserId from params:', withUserId);
-console.log('messages found:', message.length);
-                return NextResponse.json(message)
-            } catch (error) {
-                console.error(error)
-                return NextResponse.json({error: "Failed to fetch message"}, {status: 500})
-
-            }
-
-
-
+    try {
+        const messages = await prisma.message.findMany({
+            where: {
+                OR: [
+                    // Current user sends to other user
+                    {
+                        sender: { clerkId: userId },
+                        receiver: { id: withUserId }
+                    },
+                    // Other user sends to current user
+                    { 
+                        sender: { id: withUserId }, 
+                        receiver: { clerkId: userId } 
+                    },
+                ],
+            },
+            orderBy: { createdAt: "asc" },
+            include: {
+                sender: true,
+                receiver: true,
+            },
+        });
+        return NextResponse.json(messages);
+    } catch (error) {
+        console.error(error);
+        return NextResponse.json({ error: "Failed to fetch messages" }, { status: 500 });
+    }
 }

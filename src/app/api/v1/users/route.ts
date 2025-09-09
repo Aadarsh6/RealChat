@@ -2,30 +2,43 @@ import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
 import { NextResponse } from "next/server";
 
+const prisma = new PrismaClient();
 
-const prisma = new PrismaClient()
-export async function GET(){
-    const { userId } = auth()
-    if(!userId) return NextResponse.json({error:'No available'}, {status: 401})
+export async function GET(req: Request) {
+    console.log('=== USERS API CALLED ===');
+    
+    // For Next.js 15, pass the request object to auth()
+    //@ts-ignore
+    const { userId } = await auth(req);
+    console.log('userId from auth(req):', userId);
+    
+    if (!userId) {
+        console.log('❌ No userId found - returning 401');
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-        try {
+    console.log('✅ User authenticated:', userId);
 
-            const user = await prisma.user.findMany({
-                where: {
-                    NOT:{clerkId: userId},
-                },
-                select:{
-                    id: true,
-                    username: true,
-                    name: true,
-                    email: true,
-                    avatar: true
-                },
-            });
-            return NextResponse.json(user)
-        } catch (error) {
-            console.error("Error fetching users")
-            return NextResponse.json({error:"Server error"},{status: 500})
-            
-        }
+    try {
+        const users = await prisma.user.findMany({
+            where: {
+                NOT: { clerkId: userId },
+            },
+            select: {
+                id: true,
+                username: true,
+                name: true,
+                email: true,
+                avatar: true
+            },
+        });
+        
+        console.log('✅ Users found:', users.length);
+        console.log('Users data:', users);
+        
+        return NextResponse.json(users);
+    } catch (error) {
+        console.error("❌ Error fetching users:", error);
+        return NextResponse.json({ error: "Server error" }, { status: 500 });
+    }
 }
