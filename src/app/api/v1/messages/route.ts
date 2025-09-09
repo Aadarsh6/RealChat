@@ -1,7 +1,6 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
-import { error } from "console";
-import { sendError } from "next/dist/server/api-utils";
+import { Inclusive_Sans } from "next/font/google";
 import { NextResponse } from "next/server";
 
 
@@ -25,6 +24,10 @@ export async function POST(res: Request) {
 //!For the receiver, it’s easier and more natural to pass around your own local id inside the app — because that’s how relations are wired in your DB (Message.receiverId → User.id).
 
                 receiver: {connect: {id: receiverId}}
+            },
+            include:{
+                sender: true,
+                receiver: true,
             }
         });
         return NextResponse.json(message, {status: 201})
@@ -51,16 +54,25 @@ export async function GET(req: Request) {
             try {
                 const message = await prisma.message.findMany({
                     where: {
-                        OR:[
-                            {sender: {clerkId: userId}, receiverId: withUserId},
-                            {receiver: {clerkId: userId}, senderId: withUserId},
-                        ],
-                    },
+                        OR:
+                    [
+                         // Current user is sender, other user is receiver
+                        {
+                            sender: {clerkId: userId},
+                            receiver: {clerkId: userId}
+                        },
+                        // Other user is sender, current user is receiver 
+                        { 
+                            sender: { id: withUserId }, 
+                            receiver: { clerkId: userId } 
+                        },
+                    ],
+                },
                     orderBy:{ createdAt: "asc"},
                     include:{
                         sender: true,
                         receiver: true,
-                    },
+                },
                 });
                 return NextResponse.json(message)
             } catch (error) {
