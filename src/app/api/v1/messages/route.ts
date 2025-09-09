@@ -30,6 +30,8 @@ export async function POST(res: Request) {
                 receiver: true,
             }
         });
+
+        
         return NextResponse.json(message, {status: 201})
         
     } catch (error) {
@@ -59,7 +61,7 @@ export async function GET(req: Request) {
                          // Current user is sender, other user is receiver
                         {
                             sender: {clerkId: userId},
-                            receiver: {clerkId: userId}
+                            receiver: {id: withUserId}
                         },
                         // Other user is sender, current user is receiver 
                         { 
@@ -74,9 +76,17 @@ export async function GET(req: Request) {
                         receiver: true,
                 },
                 });
+                                            // In your GET messages route, add:
+console.log('userId from auth:', userId);
+console.log('withUserId from params:', withUserId);
+console.log('messages found:', message.length);
                 return NextResponse.json(message)
             } catch (error) {
                 console.error(error)
                 return NextResponse.json({error: "Failed to fetch message"}, {status: 500})
+
             }
+
+
+
 }
