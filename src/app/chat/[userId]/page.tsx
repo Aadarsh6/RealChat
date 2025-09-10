@@ -1,6 +1,6 @@
 'use client';
 
-import { useUser } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from 'axios';
@@ -219,7 +219,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={`Message ${otherUser?.name || otherUser?.username || 'user'}...`}
+                        placeholder={`Message`}
                         className="flex-1 border rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         disabled={isLoading}
                     />
@@ -239,6 +239,9 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                             </svg>
                         )}
                     </button>
+                    <div>
+                        
+                    </div>
                 </div>
             </div>
         </div>
