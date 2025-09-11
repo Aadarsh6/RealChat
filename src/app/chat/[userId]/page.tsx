@@ -1,9 +1,10 @@
 'use client';
 
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from 'axios';
+import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
 
 const ChatPage = ({ params }: { params: { userId: string } }) => {
     const { user, isLoaded } = useUser();
@@ -11,8 +12,12 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     const [messages, setMessages] = useState<any[]>([]);
     const [newMessage, setNewMessage] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [isSending, setIsSending] = useState(false);
     const [otherUser, setOtherUser] = useState<any>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [isTyping, setIsTyping] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     // Auto scroll to bottom when new messages arrive
     const scrollToBottom = () => {
@@ -21,92 +26,113 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [newMessage]);
+
+    // Focus input on mount
+    useEffect(() => {
+        inputRef.current?.focus();
+    }, []);
+
+    const fetchMessages = async () => {
+        try {
+            setError(null);
+            const res = await axios.get(`/api/v1/messages?with=${params.userId}`);
+            setMessages(res.data);
+            
+            // Get other user info from the first message if available
+            if (res.data.length > 0) {
+                const firstMsg = res.data[0];
+                const other = firstMsg.sender.clerkId === user?.id ? firstMsg.receiver : firstMsg.sender;
+                setOtherUser(other);
+            }
+        } catch (e: any) {
+            console.error("Failed to fetch messages:", e);
+            setError("Failed to load messages");
+        }
+    };
+
+    const fetchOtherUser = async () => {
+        try {
+            const res = await axios.get("/api/v1/users");
+            const other = res.data.find((u: any) => u.id === params.userId);
+            if (other) setOtherUser(other);
+        } catch (e) {
+            console.error("Failed to fetch other user:", e);
+        }
+    };
 
     useEffect(() => {
         if (!isLoaded || !user) return;
 
-        async function fetchMessages() {
-            try {
-                const res = await axios.get(`/api/v1/messages?with=${params.userId}`);
-                setMessages(res.data);
-                
-                // Get other user info from the first message if available
-                if (res.data.length > 0) {
-                    const firstMsg = res.data[0];
-                    const other = firstMsg.sender.clerkId === user?.id ? firstMsg.receiver : firstMsg.sender;
-                    setOtherUser(other);
-                }
-            } catch (e) {
-                console.error("Failed to fetch messages:", e);
-            }
-        }
-
-        // Get other user info from users list if no messages exist
-        async function fetchOtherUser() {
-            try {
-                const res = await axios.get("/api/v1/users");
-                const other = res.data.find((u: any) => u.id === params.userId);
-                if (other) setOtherUser(other);
-            } catch (e) {
-                console.error("Failed to fetch other user:", e);
-            }
-        }
-
-        fetchMessages();
-        if (!otherUser) fetchOtherUser();
+        setIsLoading(true);
+        Promise.all([fetchMessages(), fetchOtherUser()])
+            .finally(() => setIsLoading(false));
         
         const interval = setInterval(fetchMessages, 3000);
         return () => clearInterval(interval);
-    }, [params.userId, isLoaded, user, otherUser]);
+    }, [params.userId, isLoaded, user]);
 
-    async function sendMessage() {
-        if (!newMessage.trim() || isLoading || !user) return;
+    // Simulate typing indicator
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setNewMessage(e.target.value);
         
-        setIsLoading(true);
+        if (!isTyping && e.target.value.trim()) {
+            setIsTyping(true);
+            setTimeout(() => setIsTyping(false), 2000);
+        }
+    };
+
+    const sendMessage = async () => {
+        if (!newMessage.trim() || isSending || !user) return;
+        
+        setIsSending(true);
+        const messageToSend = newMessage.trim();
+        setNewMessage(''); // Clear input immediately for better UX
+        
         try {
             await axios.post("/api/v1/messages", {
                 receiverId: params.userId,
-                content: newMessage
+                content: messageToSend
             });
             
-            setNewMessage('');
-            
             // Immediately fetch messages to show the new one
-            const res = await axios.get(`/api/v1/messages?with=${params.userId}`);
-            setMessages(res.data);
-        } catch (error) {
+            await fetchMessages();
+        } catch (error: any) {
             console.error("Failed to send message:", error);
+            setError("Failed to send message. Please try again.");
+            setNewMessage(messageToSend); // Restore message if failed
         } finally {
-            setIsLoading(false);
+            setIsSending(false);
+            inputRef.current?.focus();
         }
-    }
+    };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             sendMessage();
         }
-    }
+    };
 
     // Loading state
     if (!isLoaded) {
-        return (
-            <div className="flex items-center justify-center h-screen">
-                <div className="animate-pulse text-gray-500">Loading chat...</div>
-            </div>
-        );
+        return <PageLoading text="Loading chat..." />;
     }
 
     // Not authenticated
     if (!user) {
         return (
-            <div className="flex items-center justify-center h-screen">
-                <div className="text-center">
-                    <div className="text-gray-600 mb-4">Please log in to chat</div>
+            <div className="flex items-center justify-center min-h-screen">
+                <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
+                    <div className="mb-6">
+                        <svg className="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                    </div>
+                    <h2 className="text-2xl font-bold text-gray-900 mb-4">Please log in to chat</h2>
                     <button 
                         onClick={() => router.push("/login")}
-                        className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                        className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors font-medium"
                     >
                         Go to Login
                     </button>
@@ -116,131 +142,206 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     }
 
     return (
-        <div className="flex flex-col h-screen max-w-4xl mx-auto">
+        <div className="flex flex-col h-screen bg-gray-50">
             {/* Header */}
-            <div className="bg-white border-b p-4 flex items-center space-x-3">
-                <button 
-                    onClick={() => router.push("/chat")}
-                    className="text-blue-500 hover:text-blue-600 p-1 rounded-full hover:bg-blue-50"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                    </svg>
-                </button>
-                
-                {otherUser && (
-                    <>
-                        {otherUser.avatar ? (
-                            <img 
-                                src={otherUser.avatar} 
-                                alt={otherUser.username || otherUser.email}
-                                className="w-8 h-8 rounded-full object-cover"
-                            />
+            <div className="bg-white border-b border-gray-200 shadow-sm">
+                <div className="max-w-4xl mx-auto px-4 py-4">
+                    <div className="flex items-center space-x-3">
+                        <button 
+                            onClick={() => router.push("/chat")}
+                            className="text-blue-500 hover:text-blue-600 p-2 rounded-full hover:bg-blue-50 transition-colors"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                        
+                        {otherUser ? (
+                            <>
+                                {otherUser.avatar ? (
+                                    <img 
+                                        src={otherUser.avatar} 
+                                        alt={otherUser.username || otherUser.email}
+                                        className="w-10 h-10 rounded-full object-cover border-2 border-blue-100"
+                                    />
+                                ) : (
+                                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
+                                        {(otherUser.name || otherUser.username || otherUser.email)[0].toUpperCase()}
+                                    </div>
+                                )}
+                                <div className="flex-1">
+                                    <div className="font-semibold text-gray-900">
+                                        {otherUser.name || otherUser.username || otherUser.email}
+                                    </div>
+                                    {otherUser.name && otherUser.username && (
+                                        <div className="text-sm text-gray-500">@{otherUser.username}</div>
+                                    )}
+                                    <div className="flex items-center space-x-1 text-xs text-green-600">
+                                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                        <span>Online</span>
+                                    </div>
+                                </div>
+                            </>
                         ) : (
-                            <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-sm font-semibold">
-                                {(otherUser.name || otherUser.username || otherUser.email)[0].toUpperCase()}
+                            <div className="animate-pulse flex items-center space-x-3 flex-1">
+                                <div className="w-10 h-10 bg-gray-200 rounded-full"></div>
+                                <div className="space-y-2">
+                                    <div className="h-4 bg-gray-200 rounded w-24"></div>
+                                    <div className="h-3 bg-gray-200 rounded w-16"></div>
+                                </div>
                             </div>
                         )}
-                        <div>
-                            <div className="font-medium text-gray-900">
-                                {otherUser.name || otherUser.username || otherUser.email}
-                            </div>
-                            {otherUser.name && otherUser.username && (
-                                <div className="text-sm text-gray-500">@{otherUser.username}</div>
-                            )}
+                        
+                        <div className="hidden md:flex items-center space-x-2">
+                            <button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                                </svg>
+                            </button>
+                            <button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </button>
                         </div>
-                    </>
-                )}
-                
-                {!otherUser && (
-                    <div className="animate-pulse flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-gray-700 rounded-full"></div>
-                        <div className="h-4 bg-gray-200 rounded w-24"></div>
                     </div>
-                )}
+                </div>
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
-                {messages.length === 0 ? (
-                    <div className="text-center text-gray-500 mt-8">
-                        <div className="text-lg mb-2">👋</div>
-                        <div>No messages yet.</div>
-                        <div className="text-sm">Send the first message to start the conversation!</div>
-                    </div>
-                ) : (
-                    messages.map((msg, index) => {
-                        const isMyMessage = msg.sender.clerkId === user.id;
-                        const showTime = index === 0 || 
-                            new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000; // 5 minutes
-                        
-                        return (
-                            <div key={msg.id}>
-                                {showTime && (
-                                    <div className="text-center text-xs text-gray-400 my-4">
-                                        {new Date(msg.createdAt).toLocaleDateString()} at{' '}
-                                        {new Date(msg.createdAt).toLocaleTimeString([], { 
-                                            hour: '2-digit', 
-                                            minute: '2-digit' 
-                                        })}
+            <div className="flex-1 overflow-y-auto">
+                <div className="max-w-4xl mx-auto">
+                    {isLoading ? (
+                        <ChatSkeleton />
+                    ) : error ? (
+                        <div className="p-4">
+                            <ErrorMessage 
+                                message={error} 
+                                onRetry={() => {
+                                    setError(null);
+                                    fetchMessages();
+                                }} 
+                            />
+                        </div>
+                    ) : (
+                        <div className="p-4 space-y-4">
+                            {messages.length === 0 ? (
+                                <div className="text-center py-12">
+                                    <div className="mb-4">
+                                        <svg className="w-16 h-16 mx-auto text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                                        </svg>
                                     </div>
-                                )}
-                                <div
-                                    className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}
-                                >
-                                    <div
-                                        className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg break-words ${
-                                            isMyMessage
-                                                ? "bg-blue-500 text-white"
-                                                : "bg-white text-black border border-black/20 shadow-sm"
-                                        }`}
-                                    >
-                                        <div className="text-sm">{msg.content}</div>
-                                        <div className={`text-xs mt-1 ${isMyMessage ? 'text-blue-100' : 'text-gray-500'}`}>
-                                            {new Date(msg.createdAt).toLocaleTimeString([], { 
-                                                hour: '2-digit', 
-                                                minute: '2-digit' 
-                                            })}
-                                        </div>
-                                    </div>
+                                    <h3 className="text-lg font-medium text-gray-900 mb-2">Start the conversation</h3>
+                                    <p className="text-gray-500 mb-4">
+                                        Send the first message to {otherUser?.name || otherUser?.username || 'this user'}!
+                                    </p>
                                 </div>
-                            </div>
-                        );
-                    })
-                )}
-                <div ref={messagesEndRef} />
+                            ) : (
+                                messages.map((msg, index) => {
+                                    const isMyMessage = msg.sender.clerkId === user.id;
+                                    const showTime = index === 0 || 
+                                        new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000;
+                                    
+                                    return (
+                                        <div key={msg.id}>
+                                            {showTime && (
+                                                <div className="text-center text-xs text-gray-400 my-6">
+                                                    <div className="bg-gray-100 rounded-full px-3 py-1 inline-block">
+                                                        {new Date(msg.createdAt).toLocaleDateString()} at{' '}
+                                                        {new Date(msg.createdAt).toLocaleTimeString([], { 
+                                                            hour: '2-digit', 
+                                                            minute: '2-digit' 
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div
+                                                className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}
+                                            >
+                                                <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
+                                                    {!isMyMessage && (
+                                                        <div className="flex-shrink-0">
+                                                            {otherUser?.avatar ? (
+                                                                <img 
+                                                                    src={otherUser.avatar} 
+                                                                    alt=""
+                                                                    className="w-6 h-6 rounded-full object-cover"
+                                                                />
+                                                            ) : (
+                                                                <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                                                    {(otherUser?.name || otherUser?.username || 'U')[0].toUpperCase()}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <div
+                                                        className={`px-4 py-3 rounded-2xl break-words shadow-sm ${
+                                                            isMyMessage
+                                                                ? "bg-blue-500 text-white rounded-br-md"
+                                                                : "bg-white text-gray-900 border border-gray-200 rounded-bl-md"
+                                                        }`}
+                                                    >
+                                                        <div className="text-sm leading-relaxed">{msg.content}</div>
+                                                        <div className={`text-xs mt-1 ${
+                                                            isMyMessage ? 'text-blue-100' : 'text-gray-400'
+                                                        }`}>
+                                                            {new Date(msg.createdAt).toLocaleTimeString([], { 
+                                                                hour: '2-digit', 
+                                                                minute: '2-digit' 
+                                                            })}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
+                            )}
+                            <div ref={messagesEndRef} />
+                        </div>
+                    )}
+                </div>
             </div>
 
             {/* Input area */}
-            <div className="border-t bg-white text-black p-4">
-                <div className="flex gap-2 max-w-4xl mx-auto">
-                    <input 
-                        type="text"
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={handleKeyDown}
-                        placeholder={`Message`}
-                        className="flex-1 border rounded-full px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        disabled={isLoading}
-                    />
-                    <button
-                        onClick={sendMessage}
-                        disabled={isLoading || !newMessage.trim()}
-                        className="px-6 py-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-                    >
-                        {isLoading ? (
-                            <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                        ) : (
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                            </svg>
-                        )}
-                    </button>
-                    <div>
-                        
+            <div className="border-t bg-white">
+                <div className="max-w-4xl mx-auto p-4">
+                    <div className="flex items-end space-x-3">
+                        <div className="flex-1">
+                            <input 
+                                ref={inputRef}
+                                type="text"
+                                value={newMessage}
+                                onChange={handleInputChange}
+                                onKeyDown={handleKeyDown}
+                                placeholder={`Message ${otherUser?.name || otherUser?.username || 'user'}...`}
+                                className="w-full border border-gray-300 text-black rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                                disabled={isSending}
+                                maxLength={1000}
+                            />
+                            <div className="flex justify-between items-center mt-1 px-2">
+                                <div className="text-xs text-gray-400">
+                                    {newMessage.length}/1000
+                                </div>
+                                {isTyping && (
+                                    <div className="text-xs text-blue-500">typing...</div>
+                                )}
+                            </div>
+                        </div>
+                        <button
+                            onClick={sendMessage}
+                            disabled={isSending || !newMessage.trim()}
+                            className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+                        >
+                            {isSending ? (
+                                <LoadingSpinner size="sm" />
+                            ) : (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                            )}
+                        </button>
                     </div>
                 </div>
             </div>

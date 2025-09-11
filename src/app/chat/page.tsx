@@ -1,10 +1,10 @@
 "use client";
+
 import { useEffect, useState } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
 import axios from 'axios';
 import Link from 'next/link';
 import { ErrorMessage, PageLoading, UserListSkeleton } from '../Components/Navigation/LoadingSpinner';
-
 
 interface User {
     id: string;
@@ -45,6 +45,7 @@ const ChatListPage = () => {
             setIsLoading(false);
             return;
         }
+
         fetchUsers();
     }, [authLoaded, userLoaded, userId, user]);
 
@@ -160,54 +161,43 @@ const ChatListPage = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-2">
-                                    {users
-                                        .filter(u => u.id !== userId) // Don't show current user in the list
-                                        .map((u) => (
+                                    {users.map((u) => (
                                         <Link
                                             key={u.id}
                                             href={`/chat/${u.id}`}
-                                            className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 transition-all duration-200 group"
+                                            className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer"
                                         >
                                             <div className="flex items-center space-x-4">
-                                                {/* User Avatar */}
-                                                <div className="flex-shrink-0">
-                                                    {u.avatar ? (
-                                                        <img 
-                                                            src={u.avatar} 
-                                                            alt={`${u.name || u.username}'s avatar`}
-                                                            className="w-12 h-12 rounded-full object-cover"
-                                                        />
-                                                    ) : (
-                                                        <div className="w-12 h-12 bg-gradient-to-r from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                                                            {(u.name || u.username || 'U')[0].toUpperCase()}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* User Info */}
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="flex items-center justify-between">
-                                                        <h3 className="text-lg font-semibold text-gray-900 truncate group-hover:text-blue-600 transition-colors">
-                                                            {u.name || u.username}
-                                                        </h3>
-                                                        <div className="flex items-center space-x-2 ml-2">
-                                                            {/* Online status indicator */}
-                                                            <div className="w-3 h-3 bg-green-400 rounded-full border-2 border-white shadow-sm"></div>
-                                                            <span className="text-xs text-gray-500">Online</span>
-                                                        </div>
+                                                {u.avatar ? (
+                                                    <img 
+                                                        src={u.avatar} 
+                                                        alt={u.username || u.email}
+                                                        className="w-12 h-12 rounded-full object-cover border-2 border-gray-100 group-hover:border-blue-200"
+                                                    />
+                                                ) : (
+                                                    <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                                                        {(u.name || u.username || u.email)[0].toUpperCase()}
                                                     </div>
-                                                    {u.username && u.name && u.username !== u.name && (
-                                                        <p className="text-sm text-gray-500 truncate">@{u.username}</p>
+                                                )}
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center space-x-2">
+                                                        <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
+                                                            {u.name || u.username || u.email}
+                                                        </h3>
+                                                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                                    </div>
+                                                    {u.name && u.username && (
+                                                        <p className="text-sm text-gray-500 truncate">
+                                                            @{u.username}
+                                                        </p>
                                                     )}
-                                                    <p className="text-sm text-gray-400 mt-1">
-                                                        Click to start a conversation
+                                                    <p className="text-xs text-gray-400 mt-1">
+                                                        Click to start chatting
                                                     </p>
                                                 </div>
-
-                                                {/* Arrow Icon */}
-                                                <div className="flex-shrink-0">
-                                                    <svg className="w-5 h-5 text-gray-400 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                                                <div className="text-gray-400 group-hover:text-blue-500 transition-colors">
+                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                                                     </svg>
                                                 </div>
                                             </div>
@@ -219,20 +209,39 @@ const ChatListPage = () => {
                     )}
                 </div>
 
-                {/* Footer Actions */}
-                {!isLoading && !error && users.length > 0 && (
-                    <div className="mt-6 flex justify-center">
+                {/* Quick Actions */}
+                <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
+                    <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <button 
                             onClick={fetchUsers}
-                            className="px-6 py-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-colors flex items-center space-x-2"
+                            className="flex items-center space-x-2 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                            disabled={isLoading}
                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                             </svg>
-                            <span>Refresh contacts</span>
+                            <span className="text-sm font-medium">Refresh Contacts</span>
                         </button>
+                        
+                        <Link 
+                            href="/"
+                            className="flex items-center space-x-2 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                        >
+                            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                            </svg>
+                            <span className="text-sm font-medium">Back to Home</span>
+                        </Link>
+                        
+                        <div className="flex items-center space-x-2 p-3 border border-gray-200 rounded-lg bg-gray-50">
+                            <svg className="w-5 h-5 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z" />
+                            </svg>
+                            <span className="text-sm font-medium text-gray-500">Invite Friends (Soon)</span>
+                        </div>
                     </div>
-                )}
+                </div>
             </div>
         </div>
     );
