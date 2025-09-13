@@ -122,7 +122,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     // Not authenticated
     if (!user) {
         return (
-            <div className="flex items-center justify-center min-h-screen">
+            <div className="flex items-center justify-center min-h-screen overflow-auto">
                 <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
                     <div className="mb-6">
                         <svg className="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -209,7 +209,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden ">
                 <div className="max-w-4xl mx-auto">
                     {isLoading ? (
                         <ChatSkeleton />
@@ -246,7 +246,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                     return (
                                         <div key={msg.id}>
                                             {showTime && (
-                                                <div className="text-center text-xs text-gray-400 my-6">
+                                                <div className="text-center text-xs text-gray-400 my-6 max-w-md">
                                                     <div className="bg-gray-100 rounded-full px-3 py-1 inline-block">
                                                         {new Date(msg.createdAt).toLocaleDateString()} at{' '}
                                                         {new Date(msg.createdAt).toLocaleTimeString([], { 

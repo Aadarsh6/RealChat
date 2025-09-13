@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from 'react';
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, UserButton, useUser } from '@clerk/nextjs';
 import axios from 'axios';
 import Link from 'next/link';
 import { ErrorMessage, PageLoading, UserListSkeleton } from '../Components/Navigation/LoadingSpinner';
@@ -89,12 +89,27 @@ const ChatListPage = () => {
                                 Welcome back, {user.firstName || user.username || 'User'}! 👋
                             </p>
                         </div>
+
+                        {/* <UserButton   
+                                //@ts-ignore
+                                    signOutRedirectUrl="/"
+                                    appearance={{
+                                        elements: {
+                                            avatarBox: "w-8 h-8"
+                                        }
+                                    }}
+                                /> */}
                         <div className="flex items-center space-x-3">
                             {user.imageUrl ? (
-                                <img 
-                                    src={user.imageUrl} 
-                                    alt="Your avatar"
-                                    className="w-12 h-12 rounded-full object-cover border-2 border-blue-100"
+                                <UserButton 
+                                //@ts-ignore
+                                    signOutRedirectUrl="/"
+                                    appearance={{
+                                        elements: {
+                                            avatarBox: "w-12 h-12"
+                                        }
+                                    }}
+
                                 />
                             ) : (
                                 <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
@@ -212,7 +227,7 @@ const ChatListPage = () => {
                 {/* Quick Actions */}
                 <div className="mt-6 bg-white rounded-lg shadow-sm p-6">
                     <h3 className="text-lg font-medium text-gray-900 mb-4">Quick Actions</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-black">
                         <button 
                             onClick={fetchUsers}
                             className="flex items-center space-x-2 p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
