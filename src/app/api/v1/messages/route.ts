@@ -59,10 +59,34 @@ export async function POST(req: Request) {
                 }
             }
         });
+
+
+        // Emit to Socket.io if available
+        const res = NextResponse.json(message, { status: 201 });
         
-        return NextResponse.json(message, { status: 201 });
+        // Get Socket.io instance and emit new message
+        //@ts-ignore
+        if (global.io) {
+            // Create conversation ID (consistent ordering)
+            const conversationId = [sender.id, receiverId].sort().join('-');
+            
+            // Emit to conversation participants
+                    //@ts-ignore
+
+            global.io.to(`conversation:${conversationId}`).emit('new-message', message);
+            
+            // Also emit to individual user rooms for notifications
+                    //@ts-ignore
+
+            global.io.to(`user:${receiverId}`).emit('message-notification', {
+                message,
+                from: sender
+            });
+        }
+
+        return res;
     } catch (error) {
-        console.error(error);
+        console.error("Error creating message:", error);
         return NextResponse.json({ error: "failed to send message" }, { status: 500 });
     }
 }
