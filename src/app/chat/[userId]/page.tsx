@@ -1,10 +1,43 @@
 'use client';
 
-import { useUser } from "@clerk/nextjs";
+import { RedirectToUserProfile, useUser } from "@clerk/nextjs";
 import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import axios from 'axios';
 import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
+import { useSocket } from "@/Context/socketContext";
+import { Rethink_Sans } from "next/font/google";
+import { emit } from "process";
+
+
+    interface Message{
+        id: string,
+        content: string,
+        createdAt: string,
+        sender:{
+            id: string,
+            clerkId: string,
+            username: string,
+            name: string,
+            avatar: string,
+        };
+        receiver:{
+            id: string,
+            clerkId: string,
+            username: string,
+            name: string,
+            avatar: string,
+        };
+    }
+
+    interface User{
+            id: string,
+            clerkId: string,
+            username: string,
+            name: string,
+            avatar: string,
+    }
+
 
 const ChatPage = ({ params }: { params: { userId: string } }) => {
     const { user, isLoaded } = useUser();
@@ -15,9 +48,17 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     const [isSending, setIsSending] = useState(false);
     const [otherUser, setOtherUser] = useState<any>(null);
     const [error, setError] = useState<string | null>(null);
+
     const [isTyping, setIsTyping] = useState(false);
+    const [otherUserTyping, setOtherUserTyping] = useState(false)
+
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+
+    const { socket, isConnected } = useSocket()
+    //@ts-ignore
+    const typingTimeoutRef = useRef<NodeJS.Timeout>()
+
 
     // Auto scroll to bottom when new messages arrive
     const scrollToBottom = () => {
@@ -33,6 +74,8 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         inputRef.current?.focus();
     }, []);
 
+//get user previous messages
+
     const fetchMessages = async () => {
         try {
             setError(null);
@@ -40,8 +83,10 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
             setMessages(res.data);
             
             // Get other user info from the first message if available
+            //!So this is a quick way to detect who you’re chatting with, without needing a separate request.
             if (res.data.length > 0) {
                 const firstMsg = res.data[0];
+                //!firstMsg.sender.clerkId === user?.id Checks if you (the logged-in user) were the sender of that first message.
                 const other = firstMsg.sender.clerkId === user?.id ? firstMsg.receiver : firstMsg.sender;
                 setOtherUser(other);
             }
@@ -61,6 +106,58 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         }
     };
 
+
+    
+    //Socket listeners no room logic
+    useEffect(()=>{
+        if(!socket || !user) return
+
+        const handleNewMessages = (message: Message) => {
+            if((message.sender.clerkId === user.id && message.receiver.clerkId === params.userId) || (message.sender.id === params.userId && message.receiver.clerkId === user.id)){
+                setMessages(prev => {
+                    if(prev.find(m=> m.id === message.id)) return prev //!checks for duplicates (important since socket + API may both push the same message).
+                    return [...prev, message]
+                })
+            }
+        }
+
+ // Listen for your own sent messages (for multi-device sync)
+        const handleMessageSent = (message: Message) => {
+            if((message.receiver.id === params.userId)) {
+                setMessages(prev=> {
+                    if(prev.find(m=> m.id === message.id)) return prev
+                    return [...prev, message]
+                })
+            }
+        }
+
+        //Typing indicator
+
+        const handleUserTyping =(data: {  formUserId: string, username: string})=>{
+            if(data.formUserId === params.userId){
+                setOtherUserTyping(true)
+            }
+        }
+
+        const handleUserStopTyping = (data: { fromUserId: string }) => {
+            if(data.fromUserId === params.userId){
+                setOtherUserTyping(false)
+            }
+        };
+        socket.on("new-message",handleNewMessages)
+        socket.on("message-sent", handleMessageSent)
+        socket.on("user-typing", handleUserTyping)
+        socket.on("user-stop-typing", handleUserStopTyping)
+
+        return ()=>{
+        socket.off("new-message",handleNewMessages)
+        socket.off("message-sent", handleMessageSent)
+        socket.off("user-typing", handleUserTyping)
+        socket.off("user-stop-typing", handleUserStopTyping)
+        }
+    },[user, params.userId, socket])
+
+//initial data loading
     useEffect(() => {
         if (!isLoaded || !user) return;
 
@@ -72,31 +169,62 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         return () => clearInterval(interval);
     }, [params.userId, isLoaded, user]);
 
+
     // Simulate typing indicator
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setNewMessage(e.target.value);
         
+        if(!socket) return
+
+//send typing to specific user
         if (!isTyping && e.target.value.trim()) {
             setIsTyping(true);
-            setTimeout(() => setIsTyping(false), 2000);
+        socket.emit('typing',{
+            toUserId: params.userId,
+            fromUserId: user?.id,
+            username: user?.username || user?.firstName || "User"
+        })
         }
     };
+
+    if(typingTimeoutRef.current){
+        clearTimeout(typingTimeoutRef.current)
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+        if(isTyping){
+            socket?.emit('stop-typing', {
+                toUserId: params.userId,
+                fromUserId: user?.id
+            });
+        }
+    }, 2000);
+
+
 
     const sendMessage = async () => {
         if (!newMessage.trim() || isSending || !user) return;
         
         setIsSending(true);
         const messageToSend = newMessage.trim();
-        setNewMessage(''); // Clear input immediately for better UX
+        setNewMessage(''); //claer the input feild
         
+        if(isTyping && socket){
+            setIsTyping(false)
+            socket.emit('stop-typing', {
+                toUserId: params.userId,
+                fromUserId: user.id
+            })
+        }
+
         try {
             await axios.post("/api/v1/messages", {
                 receiverId: params.userId,
                 content: messageToSend
             });
             
-            // Immediately fetch messages to show the new one
-            await fetchMessages();
+            // message will come back through socket
+            // await fetchMessages();
         } catch (error: any) {
             console.error("Failed to send message:", error);
             setError("Failed to send message. Please try again.");
