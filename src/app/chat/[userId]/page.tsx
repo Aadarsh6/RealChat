@@ -248,7 +248,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     }
 
     // Not authenticated
-    if (!user) {
+ if (!user) {
         return (
             <div className="flex items-center justify-center min-h-screen overflow-auto">
                 <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
@@ -304,9 +304,11 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                     {otherUser.name && otherUser.username && (
                                         <div className="text-sm text-gray-500">@{otherUser.username}</div>
                                     )}
-                                    <div className="flex items-center space-x-1 text-xs text-green-600">
-                                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
-                                        <span>Online</span>
+                                    <div className="flex items-center space-x-1 text-xs">
+                                        <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-400'}`}></div>
+                                        <span className={isConnected ? 'text-green-600' : 'text-gray-500'}>
+                                            {isConnected ? 'Online' : 'Offline'}
+                                        </span>
                                     </div>
                                 </div>
                             </>
@@ -319,25 +321,12 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                 </div>
                             </div>
                         )}
-                        
-                        <div className="hidden md:flex items-center space-x-2">
-                            <button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                                </svg>
-                            </button>
-                            <button className="p-2 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                </svg>
-                            </button>
-                        </div>
                     </div>
                 </div>
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden ">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
                 <div className="max-w-4xl mx-auto">
                     {isLoading ? (
                         <ChatSkeleton />
@@ -374,7 +363,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                     return (
                                         <div key={msg.id}>
                                             {showTime && (
-                                                <div className="text-center text-xs text-gray-400 my-6 max-w-md">
+                                                <div className="text-center text-xs text-gray-400 my-6">
                                                     <div className="bg-gray-100 rounded-full px-3 py-1 inline-block">
                                                         {new Date(msg.createdAt).toLocaleDateString()} at{' '}
                                                         {new Date(msg.createdAt).toLocaleTimeString([], { 
@@ -384,9 +373,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                                     </div>
                                                 </div>
                                             )}
-                                            <div
-                                                className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}
-                                            >
+                                            <div className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
                                                 <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
                                                     {!isMyMessage && (
                                                         <div className="flex-shrink-0">
@@ -426,6 +413,35 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                     );
                                 })
                             )}
+                            
+                            {/* Simple typing indicator */}
+                            {otherUserTyping && (
+                                <div className="flex justify-start">
+                                    <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
+                                        <div className="flex-shrink-0">
+                                            {otherUser?.avatar ? (
+                                                <img 
+                                                    src={otherUser.avatar} 
+                                                    alt=""
+                                                    className="w-6 h-6 rounded-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center text-white text-xs font-medium">
+                                                    {(otherUser?.name || otherUser?.username || 'U')[0].toUpperCase()}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-md">
+                                            <div className="flex space-x-1">
+                                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                                                <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
                             <div ref={messagesEndRef} />
                         </div>
                     )}
@@ -445,21 +461,26 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                 onKeyDown={handleKeyDown}
                                 placeholder={`Message ${otherUser?.name || otherUser?.username || 'user'}...`}
                                 className="w-full border border-gray-300 text-black rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                                disabled={isSending}
+                                disabled={isSending || !isConnected}
                                 maxLength={1000}
                             />
                             <div className="flex justify-between items-center mt-1 px-2">
                                 <div className="text-xs text-gray-400">
                                     {newMessage.length}/1000
                                 </div>
-                                {isTyping && (
-                                    <div className="text-xs text-blue-500">typing...</div>
-                                )}
+                                <div className="flex items-center space-x-2">
+                                    {!isConnected && (
+                                        <span className="text-xs text-red-500">Disconnected</span>
+                                    )}
+                                    {isTyping && (
+                                        <div className="text-xs text-blue-500">typing...</div>
+                                    )}
+                                </div>
                             </div>
                         </div>
                         <button
                             onClick={sendMessage}
-                            disabled={isSending || !newMessage.trim()}
+                            disabled={isSending || !newMessage.trim() || !isConnected}
                             className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                         >
                             {isSending ? (
