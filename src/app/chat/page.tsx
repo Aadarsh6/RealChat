@@ -5,6 +5,7 @@ import { useAuth, UserButton, useUser } from '@clerk/nextjs';
 import axios from 'axios';
 import Link from 'next/link';
 import { ErrorMessage, PageLoading, UserListSkeleton } from '../Components/Navigation/LoadingSpinner';
+import { useSocket } from '@/Context/socketContext';
 
 interface User {
     id: string;
@@ -22,6 +23,8 @@ const ChatListPage = () => {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
+    const { socket, isConnected } = useSocket()
+
     const fetchUsers = async () => {
         try {
             setIsLoading(true);
@@ -30,6 +33,34 @@ const ChatListPage = () => {
             const res = await axios.get("/api/v1/users");
             console.log('Users fetched:', res.data);
             setUsers(res.data);
+
+
+            //check online status for each user
+            const userWithStatus = await Promise.all(
+                res.data.map(async (user: User)=>{
+                    try {
+                        const statusRes =  await axios.get(`api/v1/users/online?userId=${user.id}`);
+                        return {...user, isOnline: statusRes.data.isOnline}
+                    } catch (error) {
+                        return {...user, isOnline: false}
+                    }
+                })
+            )
+
+//store online user on top
+
+            const sortedUsers = userWithStatus.sort((a, b)=>{
+
+//*-1 → means a comes before b
+//* 1 → means a comes after b
+//* 0 → means leave their order unchanged
+
+                if(a.isOnline && !b.isOnline) return -1;
+                if(!a.isOnline && b.isOnline) return 1;
+                return 0;
+            });
+            setUsers(sortedUsers)
+
         } catch (err: any) {
             console.error("Failed to fetch users:", err);
             const errorMessage = err.response?.data?.error || "Failed to load users. Please try again.";
@@ -39,6 +70,8 @@ const ChatListPage = () => {
         }
     };
 
+
+    
     useEffect(() => {
         if (!authLoaded || !userLoaded) return;
         if (!userId || !user) {
