@@ -2,7 +2,7 @@
 
 import { useUser } from "@clerk/nextjs";
 import { error } from "console";
-import { Children, createContext, ReactNode, useContext, useEffect, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import { Socket } from "socket.io";
 import { io } from "socket.io-client";
 
