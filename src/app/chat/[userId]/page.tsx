@@ -162,8 +162,9 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
     },[user, paramUserId, socket])
 
 //!initial data loading
-
+//?
 //TODO: Better and fast data fetching loading(batch loading)
+//?
     useEffect(() => {
         if (!isLoaded || !user) return;
 
