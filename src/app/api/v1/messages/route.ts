@@ -1,8 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
-import { error } from "console";
 import { NextResponse } from "next/server";
-import { Socket } from "socket.io-client";
 
 const prisma = new PrismaClient();
 
@@ -27,10 +25,10 @@ export async function POST(req: Request) {
     if(!sender) return NextResponse.json({error: "Unauthorised sender"}, {status:404})
 
      //verify receiver exists
-     const receiver = await prisma.user.findUnique({
+    const receiver = await prisma.user.findUnique({
         where:{id: receiverId}
-     })
-         if(!receiver) return NextResponse.json({error: "Receiver not found"}, {status:404})
+    })
+        if(!receiver) return NextResponse.json({error: "Receiver not found"}, {status:404})
 
 
     try {
@@ -80,28 +78,6 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(message, {status:201})
-
-    //     const res = NextResponse.json(message, { status: 201 });
-        
-    //     // Get Socket.io instance and emit new message
-    //     //@ts-ignore
-    //     if (global.io) {
-    //         // Create conversation ID (consistent ordering)  
-    //         //? This line is like senderId + '-' + receiverId like '123-456'
-    //         const conversationId = [sender.id, receiverId].sort().join('-');  //!You fetch the sender from your own database
-            
-    //         // Emit to conversation participants
-    //                 //@ts-ignore
-    //         global.io.to(`conversation:${conversationId}`).emit('new-message', message);
-            
-    //         // Also emit to individual user rooms for notifications
-    //                 //@ts-ignore
-    //         global.io.to(`user:${receiverId}`).emit('message-notification', {
-    //             message,
-    //             from: sender
-    //         });
-    //     }
-    //     return res;
     } catch (error) {
         console.error("Error creating message:", error);
         return NextResponse.json({ error: "failed to send message" }, { status: 500 });
@@ -110,7 +86,7 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
     //@ts-ignore
-    const { userId } = await auth(req); // Pass req to auth()
+    const { userId } = await auth(); 
     if (!userId) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
     const { searchParams } = new URL(req.url);
@@ -173,8 +149,9 @@ export async function GET(req: Request) {
             },
         });
         return NextResponse.json(messages);
+
     } catch (error) {
-        console.error(error);
+        console.error("❌ Error fetching messages:", error);
         return NextResponse.json({ error: "Failed to fetch messages" }, { status: 500 });
     }
 }
