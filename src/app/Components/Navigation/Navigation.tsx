@@ -9,7 +9,7 @@ import { usePathname } from "next/navigation"
 const Navigation = () => {
     const { user } = useUser()
     const pathname = usePathname()
-
+    if(!pathname) return null
     if(pathname.includes('/login') || pathname.includes('signup')) return null
 
    return (
