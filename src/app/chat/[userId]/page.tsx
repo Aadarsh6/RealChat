@@ -1,7 +1,7 @@
 'use client';
 
 import { RedirectToUserProfile, useUser } from "@clerk/nextjs";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import axios from 'axios';
 import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
@@ -39,7 +39,11 @@ import { emit } from "process";
     }
 
 
-const ChatPage = ({ params }: { params: { userId: string } }) => {
+const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
+
+    const unwrappedParams = use(params);
+    const { userId: paramUserId } = unwrappedParams;
+
     const { user, isLoaded } = useUser();
     const router = useRouter();
     const [messages, setMessages] = useState<any[]>([]);
@@ -79,7 +83,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     const fetchMessages = async () => {
         try {
             setError(null);
-            const res = await axios.get(`/api/v1/messages?with=${params.userId}`);
+            const res = await axios.get(`/api/v1/messages?with=${paramUserId}`);
             setMessages(res.data);
             
             // Get other user info from the first message if available
@@ -99,7 +103,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     const fetchOtherUser = async () => {
         try {
             const res = await axios.get("/api/v1/users");
-            const other = res.data.find((u: any) => u.id === params.userId);
+            const other = res.data.find((u: any) => u.id === paramUserId);
             if (other) setOtherUser(other);
         } catch (e) {
             console.error("Failed to fetch other user:", e);
@@ -113,7 +117,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         if(!socket || !user) return
 
         const handleNewMessages = (message: Message) => {
-            if((message.sender.clerkId === user.id && message.receiver.clerkId === params.userId) || (message.sender.id === params.userId && message.receiver.clerkId === user.id)){
+            if((message.sender.clerkId === user.id && message.receiver.clerkId === paramUserId) || (message.sender.id === paramUserId && message.receiver.clerkId === user.id)){
                 setMessages(prev => {
                     if(prev.find(m=> m.id === message.id)) return prev //!checks for duplicates (important since socket + API may both push the same message).
                     return [...prev, message]
@@ -123,7 +127,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
 
  // Listen for your own sent messages (for multi-device sync)
         const handleMessageSent = (message: Message) => {
-            if((message.receiver.id === params.userId)) {
+            if((message.receiver.id === paramUserId)) {
                 setMessages(prev=> {
                     if(prev.find(m=> m.id === message.id)) return prev
                     return [...prev, message]
@@ -134,13 +138,13 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         //Typing indicator
 
         const handleUserTyping =(data: {  formUserId: string, username: string})=>{
-            if(data.formUserId === params.userId){
+            if(data.formUserId === paramUserId){
                 setOtherUserTyping(true)
             }
         }
 
         const handleUserStopTyping = (data: { fromUserId: string }) => {
-            if(data.fromUserId === params.userId){
+            if(data.fromUserId === paramUserId){
                 setOtherUserTyping(false)
             }
         };
@@ -155,9 +159,11 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         socket.off("user-typing", handleUserTyping)
         socket.off("user-stop-typing", handleUserStopTyping)
         }
-    },[user, params.userId, socket])
+    },[user, paramUserId, socket])
 
-//initial data loading
+//!initial data loading
+
+//TODO: Better and fast data fetching loading(batch loading)
     useEffect(() => {
         if (!isLoaded || !user) return;
 
@@ -167,7 +173,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         
         const interval = setInterval(fetchMessages, 3000);
         return () => clearInterval(interval);
-    }, [params.userId, isLoaded, user]);
+    }, [paramUserId, isLoaded, user]);
 
 
     // Simulate typing indicator
@@ -180,7 +186,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         if (!isTyping && e.target.value.trim()) {
             setIsTyping(true);
         socket.emit('typing',{
-            toUserId: params.userId,
+            toUserId: paramUserId,
             fromUserId: user?.id,
             username: user?.username || user?.firstName || "User"
         })
@@ -194,7 +200,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     typingTimeoutRef.current = setTimeout(() => {
         if(isTyping){
             socket?.emit('stop-typing', {
-                toUserId: params.userId,
+                toUserId: paramUserId,
                 fromUserId: user?.id
             });
         }
@@ -212,14 +218,14 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
         if(isTyping && socket){
             setIsTyping(false)
             socket.emit('stop-typing', {
-                toUserId: params.userId,
+                toUserId: paramUserId,
                 fromUserId: user.id
             })
         }
 
         try {
             await axios.post("/api/v1/messages", {
-                receiverId: params.userId,
+                receiverId: paramUserId,
                 content: messageToSend
             });
             
@@ -248,7 +254,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
     }
 
     // Not authenticated
- if (!user) {
+    if (!user) {
         return (
             <div className="flex items-center justify-center min-h-screen overflow-auto">
                 <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
@@ -289,17 +295,17 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                 {otherUser.avatar ? (
                                     <img 
                                         src={otherUser.avatar} 
-                                        alt={otherUser.username || otherUser.email}
+                                        alt={otherUser.username || 'User'}
                                         className="w-10 h-10 rounded-full object-cover border-2 border-blue-100"
                                     />
                                 ) : (
                                     <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                                        {(otherUser.name || otherUser.username || otherUser.email)[0].toUpperCase()}
+                                        {(otherUser.name || otherUser.username || 'U')[0].toUpperCase()}
                                     </div>
                                 )}
                                 <div className="flex-1">
                                     <div className="font-semibold text-gray-900">
-                                        {otherUser.name || otherUser.username || otherUser.email}
+                                        {otherUser.name || otherUser.username}
                                     </div>
                                     {otherUser.name && otherUser.username && (
                                         <div className="text-sm text-gray-500">@{otherUser.username}</div>
@@ -414,7 +420,7 @@ const ChatPage = ({ params }: { params: { userId: string } }) => {
                                 })
                             )}
                             
-                            {/* Simple typing indicator */}
+                            {/* Typing indicator */}
                             {otherUserTyping && (
                                 <div className="flex justify-start">
                                     <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
