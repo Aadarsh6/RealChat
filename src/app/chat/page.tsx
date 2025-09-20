@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useAuth, UserButton, useUser } from '@clerk/nextjs';
 import axios from 'axios';
 import Link from 'next/link';
@@ -70,8 +70,8 @@ const ChatListPage = () => {
         }
     };
 
+//Refresh online status periodically
 
-    
     useEffect(() => {
         if (!authLoaded || !userLoaded) return;
         if (!userId || !user) {
@@ -81,7 +81,41 @@ const ChatListPage = () => {
         }
 
         fetchUsers();
+        
+        // const interval = setInterval(() => {
+        //    fetchUsers() 
+        // }, 9000);
+
+        // return ()=> clearInterval(interval)
+
     }, [authLoaded, userLoaded, userId, user]);
+
+
+    //user status change
+
+    useEffect(()=>{
+        if(!socket || !isConnected) return
+        const handleUserOnline = (data:{userId:string}) => {
+            setUsers(prev => prev.map(u => 
+                u.id === data.userId ? {...u, isOnline: true } : u
+            ));
+        };
+
+        const handleUserOffline = (data:{userId: string}) => {
+            setUsers(prev=> prev.map(u=> 
+                u.id === data.userId? {...u, isOnline: false} : u
+            ));
+        };
+
+        socket.on("user-online-status", handleUserOnline)
+        socket.on("user-offline-status", handleUserOffline)
+
+        return ()=>{
+        socket.off("user-online-status", handleUserOnline)
+        socket.off("user-offline-status", handleUserOffline)
+        }
+    },[socket, isConnected])
+
 
     // Loading while Clerk initializes
     if (!authLoaded || !userLoaded) {
@@ -122,17 +156,14 @@ const ChatListPage = () => {
                             <p className="text-gray-600 mt-1">
                                 Welcome back, {user.firstName || user.username || 'User'}! 👋
                             </p>
+                            <div className="flex items-center space-x-2 mt-2">
+                                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                                <span className="text-sm text-gray-600">
+                                    {isConnected ? 'Connected' : 'Reconnecting...'}
+                                </span>
+                            </div>
                         </div>
 
-                        {/* <UserButton   
-                                //@ts-ignore
-                                    signOutRedirectUrl="/"
-                                    appearance={{
-                                        elements: {
-                                            avatarBox: "w-8 h-8"
-                                        }
-                                    }}
-                                /> */}
                         <div className="flex items-center space-x-3">
                             {user.imageUrl ? (
                                 <UserButton 
@@ -143,7 +174,6 @@ const ChatListPage = () => {
                                             avatarBox: "w-12 h-12"
                                         }
                                     }}
-
                                 />
                             ) : (
                                 <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold text-lg">
@@ -186,7 +216,7 @@ const ChatListPage = () => {
                                     Available Contacts
                                 </h2>
                                 <div className="text-sm text-gray-500">
-                                    {users.length} user{users.length !== 1 ? 's' : ''} online
+                                    {users.filter(u => u.isOnline).length} online • {users.length} total
                                 </div>
                             </div>
 
@@ -217,23 +247,34 @@ const ChatListPage = () => {
                                             className="block p-4 border border-gray-200 rounded-lg hover:bg-gray-50 hover:border-blue-300 hover:shadow-md transition-all group cursor-pointer"
                                         >
                                             <div className="flex items-center space-x-4">
-                                                {u.avatar ? (
-                                                    <img 
-                                                        src={u.avatar} 
-                                                        alt={u.username || u.email}
-                                                        className="w-12 h-12 rounded-full object-cover border-2 border-gray-100 group-hover:border-blue-200"
-                                                    />
-                                                ) : (
-                                                    <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
-                                                        {(u.name || u.username || u.email)[0].toUpperCase()}
-                                                    </div>
-                                                )}
+                                                <div className="relative">
+                                                    {u.avatar ? (
+                                                        <img 
+                                                            src={u.avatar} 
+                                                            alt={u.username || u.email}
+                                                            className="w-12 h-12 rounded-full object-cover border-2 border-gray-100 group-hover:border-blue-200"
+                                                        />
+                                                    ) : (
+                                                        <div className="w-12 h-12 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold text-lg">
+                                                            {(u.name || u.username || u.email)[0].toUpperCase()}
+                                                        </div>
+                                                    )}
+                                                    {/* Online indicator */}
+                                                    <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white ${
+                                                        u.isOnline ? 'bg-green-400' : 'bg-gray-400'
+                                                    }`}></div>
+                                                </div>
+                                                
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex items-center space-x-2">
                                                         <h3 className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors truncate">
                                                             {u.name || u.username || u.email}
                                                         </h3>
-                                                        <div className="w-2 h-2 bg-green-400 rounded-full"></div>
+                                                        {u.isOnline && (
+                                                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                                                Online
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     {u.name && u.username && (
                                                         <p className="text-sm text-gray-500 truncate">
@@ -241,7 +282,7 @@ const ChatListPage = () => {
                                                         </p>
                                                     )}
                                                     <p className="text-xs text-gray-400 mt-1">
-                                                        Click to start chatting
+                                                        {u.isOnline ? 'Available to chat' : 'Last seen recently'}
                                                     </p>
                                                 </div>
                                                 <div className="text-gray-400 group-hover:text-blue-500 transition-colors">

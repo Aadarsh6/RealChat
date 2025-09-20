@@ -1,72 +1,73 @@
 "use client";
 
 import { useUser } from "@clerk/nextjs";
-import { error } from "console";
 import { createContext, ReactNode, useContext, useEffect, useState } from "react";
-import { Socket } from "socket.io";
+import { Socket } from "socket.io-client";
 import { io } from "socket.io-client";
 
-
-interface socketContextType{
+interface SocketContextType {
     socket: Socket | null;
     isConnected: boolean;
 }
 
-const SocketContext = createContext<socketContextType>({
+const SocketContext = createContext<SocketContextType>({
     socket: null,
     isConnected: false  
 });
 
-export const useSocket = ()=>{
-    return useContext(SocketContext)
+export const useSocket = () => {
+    return useContext(SocketContext);
 }
 
-interface SocketProviderProps{
+interface SocketProviderProps {
     children: ReactNode;
 }
 
 export const SocketProvider = ({ children }: SocketProviderProps) => {
-    const [socket, setSocket] = useState()
-    const [isConnected, setIsConnected] = useState(false)
-    const { user, isLoaded } = useUser()
+    const [socket, setSocket] = useState<Socket | null>(null);
+    const [isConnected, setIsConnected] = useState(false);
+    const { user, isLoaded } = useUser();
 
-    useEffect(()=>{
-        if(!isLoaded || !user) return
+    useEffect(() => {
+        if (!isLoaded || !user) return;
 
-        const SocketInstance = io(process.env.NODE_ENV === 'production' 
+        console.log('Initializing socket connection...');
+        
+        const socketInstance = io(process.env.NODE_ENV === 'production' 
             ? process.env.NEXT_PUBLIC_SITE_URL || '' 
             : 'http://localhost:3000', {
-            path: '/api/v1/socketIo/socket.io',
-            addTrailingSlash: false
-    }) ;
+            path: '/api/socket.io', // Fixed path to match server
+            addTrailingSlash: false,
+            transports: ['websocket', 'polling'], // Add transport options
+        });
     
-    SocketInstance.on('connect', ()=>{
-        console.log("Connected to server");
-        setIsConnected(true)
+        socketInstance.on('connect', () => {
+            console.log("Connected to server with socket ID:", socketInstance.id);
+            setIsConnected(true);
+            socketInstance.emit('user-online', user.id);
+        });
 
-        SocketInstance.emit('user-online', user.id)
-    });
+        socketInstance.on('disconnect', () => {
+            console.log("Disconnected from server");
+            setIsConnected(false);
+        });
 
-    SocketInstance.on('disconnect', ()=>{
-        console.log("Disconnected from server");
-        setIsConnected(false)
-    });
+        socketInstance.on('connect_error', (error) => {
+            console.error("Socket connection error: ", error);
+            setIsConnected(false);
+        });
 
-    SocketInstance.on('connect-error', (error)=>{
-        console.error("Socket connection error: ", error);
-        setIsConnected(false)
-    });
-    //@ts-ignore
-    setSocket(SocketInstance)
-    return ()=> {
-        SocketInstance.disconnect()
-    };
-    }, [user, isLoaded])
+        setSocket(socketInstance);
+
+        return () => {
+            console.log('Cleaning up socket connection...');
+            socketInstance.disconnect();
+        };
+    }, [user, isLoaded]);
 
     return (
-        //@ts-ignore
-        <SocketContext.Provider value={{socket, isConnected}}>
+        <SocketContext.Provider value={{ socket, isConnected }}>
             {children}
         </SocketContext.Provider>
-    )
-}
+    );
+};

@@ -4,6 +4,7 @@ import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { syncUser } from "@/lib/syncUser";
 import Navigation from "./Components/Navigation/Navigation";
+import { SocketProvider } from "@/Context/socketContext";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,8 +41,10 @@ export default async function RootLayout({
         <body
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
+          <SocketProvider>
           <Navigation/>
           {children}
+          </SocketProvider>
         </body>
       </html>
     </ClerkProvider>

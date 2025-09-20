@@ -2,6 +2,7 @@ import { auth } from "@clerk/nextjs/server";
 import { PrismaClient } from "@prisma/client";
 import { error } from "console";
 import { NextResponse } from "next/server";
+import { Socket } from "socket.io-client";
 
 const prisma = new PrismaClient();
 
@@ -62,27 +63,45 @@ export async function POST(req: Request) {
         });
         
     // Emit to Socket.io if available
-        const res = NextResponse.json(message, { status: 201 });
-        
-        // Get Socket.io instance and emit new message
-        //@ts-ignore
-        if (global.io) {
-            // Create conversation ID (consistent ordering)  
-            //? This line is like senderId + '-' + receiverId like '123-456'
-            const conversationId = [sender.id, receiverId].sort().join('-');  //!You fetch the sender from your own database
-            
-            // Emit to conversation participants
-                    //@ts-ignore
-            global.io.to(`conversation:${conversationId}`).emit('new-message', message);
-            
-            // Also emit to individual user rooms for notifications
-                    //@ts-ignore
-            global.io.to(`user:${receiverId}`).emit('message-notification', {
+
+    if(global.io && global.io.userSockets){
+        const senderSocketId = global.io.userSockets.get(userId);
+        const receiverSocketId = global.io.userSockets.get(receiver.clerkId);
+
+        //emit (broadcast) socket for multi devices sync
+
+        if(receiverSocketId){
+            global.io.to(receiverSocketId).emit('new-message', message)
+            global.io.to(receiverSocketId).emit('message-notification', {
                 message,
                 from: sender
             });
         }
-        return res;
+    }
+
+    return NextResponse.json(message, {status:201})
+
+    //     const res = NextResponse.json(message, { status: 201 });
+        
+    //     // Get Socket.io instance and emit new message
+    //     //@ts-ignore
+    //     if (global.io) {
+    //         // Create conversation ID (consistent ordering)  
+    //         //? This line is like senderId + '-' + receiverId like '123-456'
+    //         const conversationId = [sender.id, receiverId].sort().join('-');  //!You fetch the sender from your own database
+            
+    //         // Emit to conversation participants
+    //                 //@ts-ignore
+    //         global.io.to(`conversation:${conversationId}`).emit('new-message', message);
+            
+    //         // Also emit to individual user rooms for notifications
+    //                 //@ts-ignore
+    //         global.io.to(`user:${receiverId}`).emit('message-notification', {
+    //             message,
+    //             from: sender
+    //         });
+    //     }
+    //     return res;
     } catch (error) {
         console.error("Error creating message:", error);
         return NextResponse.json({ error: "failed to send message" }, { status: 500 });
