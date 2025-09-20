@@ -23,6 +23,16 @@ interface SocketProviderProps {
     children: ReactNode;
 }
 
+const getBrowserName = () => {
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.indexOf('brave') > -1) return 'brave';
+    if (userAgent.indexOf('chrome') > -1) return 'chrome';
+    if (userAgent.indexOf('firefox') > -1) return 'firefox';
+    if (userAgent.indexOf('safari') > -1) return 'safari';
+    if (userAgent.indexOf('edge') > -1) return 'edge';
+    return 'unknown';
+};
+
 export const SocketProvider = ({ children }: SocketProviderProps) => {
     const [socket, setSocket] = useState<Socket | null>(null);
     const [isConnected, setIsConnected] = useState(false);
@@ -33,19 +43,30 @@ export const SocketProvider = ({ children }: SocketProviderProps) => {
 
         console.log('🔧 Initializing socket connection...');
         
-        const socketInstance = io(process.env.NODE_ENV === 'production' 
-            ? process.env.NEXT_PUBLIC_SITE_URL || '' 
-            : 'http://localhost:3000', {
-            path: '/api/socket.io',
-            addTrailingSlash: false,
-            transports: ['websocket', 'polling'],
-            timeout: 20000,
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            reconnectionAttempts: 5,
-            forceNew: true
-        });
+        
+const browser = getBrowserName();
+        let transports: string[] = ['websocket', 'polling'];
+        if (browser === 'brave') {
+            transports = ['polling', 'websocket'];
+        }
+
+
+
+    const socketInstance = io(
+            process.env.NODE_ENV === 'production'
+                ? process.env.NEXT_PUBLIC_SITE_URL || ''
+                : 'http://localhost:3000',
+            {
+                path: '/api/socket.io', 
+                addTrailingSlash: false,
+                transports,
+                timeout: 20000,
+                reconnection: true,
+                reconnectionDelay: browser === 'brave' ? 2000 : 1000,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: 5,
+            }
+        );
 
         // Connection handlers
         socketInstance.on('connect', () => {

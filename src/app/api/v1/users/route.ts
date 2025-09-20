@@ -9,8 +9,8 @@ export async function GET(req: Request) {
     
     // For Next.js 15, pass the request object to auth()
     //@ts-ignore
-    const { userId } = await auth(req);
-    console.log('userId from auth(req):', userId);
+    const { userId } = await auth();
+    console.log('userId from auth():', userId);
     
     if (!userId) {
         console.log('❌ No userId found - returning 401');
@@ -26,6 +26,7 @@ export async function GET(req: Request) {
             },
             select: {
                 id: true,
+                clerkId:true,
                 username: true,
                 name: true,
                 email: true,
