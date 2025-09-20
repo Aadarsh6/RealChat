@@ -9,8 +9,10 @@ import { usePathname } from "next/navigation"
 const Navigation = () => {
     const { user } = useUser()
     const pathname = usePathname()
-    if(!pathname) return null
-    if(pathname.includes('/login') || pathname.includes('signup')) return null
+
+    if(!pathname) return null;
+
+    if(pathname.includes('/login') || pathname.includes('signup')) return null;
 
    return (
         <nav className="bg-white border-b border-gray-200 shadow-sm">
