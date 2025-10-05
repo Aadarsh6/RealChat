@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
-import { syncUser } from "@/lib/syncUser";
 import Navigation from "./Components/Navigation/Navigation";
 import { SocketProvider } from "@/Context/socketContext";
+import { UserSync } from "./Components/UserSync";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -21,20 +21,11 @@ export const metadata: Metadata = {
   description: "Next.js Chat App with Clerk",
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  console.log('=== ROOT LAYOUT RENDERING ===');
-  
-  try {
-    const syncResult = await syncUser();
-    console.log('Sync user result:', syncResult ? 'Success' : 'No user or already synced');
-  } catch (error) {
-    console.error('Error in syncUser:', error);
-  }
-  
   return (
     <ClerkProvider>
       <html lang="en">
@@ -42,8 +33,9 @@ export default async function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         >
           <SocketProvider>
-          <Navigation/>
-          {children}
+            <UserSync /> {/* Add this component */}
+            <Navigation/>
+            {children}
           </SocketProvider>
         </body>
       </html>

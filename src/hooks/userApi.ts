@@ -1,5 +1,5 @@
 
-import { setupAuthInterceptors } from '@/lib/api';
+import { setupApiInterceptors } from '@/lib/api';
 import { useAuth } from '@clerk/nextjs';
 import { useEffect } from 'react';
 
@@ -7,6 +7,6 @@ export const useApiSetup = () => {
     const { getToken } = useAuth();
 
     useEffect(() => {
-        setupAuthInterceptors(getToken);
+        setupApiInterceptors(getToken);
     }, [getToken]);
 };
