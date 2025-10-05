@@ -229,6 +229,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
         }
 
         try {
+            console.log('📤 Sending message to:', paramUserId);
             await messagesApi.send({
             receiverId: paramUserId,
             content: messageToSend
