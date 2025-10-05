@@ -7,14 +7,21 @@ const prisma = new PrismaClient();
 export async function GET(req: Request) {
     console.log('=== USERS API CALLED ===');
     
-    // For Next.js 15, pass the request object to auth()
-    //@ts-ignore
-    const { userId } = await auth();
-    console.log('userId from auth():', userId);
+    let userId: string;
     
-    if (!userId) {
-        console.log('❌ No userId found - returning 401');
-        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    try {
+        // For Next.js 15 with Clerk v6, auth() should work without parameters
+        const authResult = await auth();
+        userId = authResult.userId!;
+        console.log('userId from auth():', userId);
+        
+        if (!userId) {
+            console.log('❌ No userId found - returning 401');
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+    } catch (authError) {
+        console.error('❌ Auth error:', authError);
+        return NextResponse.json({ error: 'Authentication failed' }, { status: 401 });
     }
 
     console.log('✅ User authenticated:', userId);

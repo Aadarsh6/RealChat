@@ -1,49 +1,58 @@
-//! This file:
-//* Creates a reusable axios instance called apiClient
-//* Adds interceptors to automatically attach the user’s auth token and handle errors
-//* Exposes ready-to-use API functions for messages and users
+import axios from 'axios';
 
-//!Think of an interceptor as a middleware for your HTTP requests and responses.
-//!It lets you modify or inspect every request or response before it’s actually sent or received.
-
-import axios from "axios";
-import { error } from "console";
-import { config } from "process";
-
-
+// IMPORTANT: Use backend URL, not frontend URL
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
+console.log('🔗 API Base URL:', API_BASE_URL); // Debug log
+
+// Create axios instance
 export const apiClient = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 1000,
-    headers:{
-        'Content-Type': 'application/json'
+    timeout: 10000,
+    headers: {
+        'Content-Type': 'application/json',
     },
+    withCredentials: true
 });
 
-//auth interceptor
+// Auth token interceptor
+let getTokenFunction: (() => Promise<string | null>) | null = null;
 
-export const setupAuthInterceptors=(getToken: ()=> Promise<string | null>)=>{
+export const setupApiInterceptors = (getToken: () => Promise<string | null>) => {
+    getTokenFunction = getToken;
+    
+    // Request interceptor
     apiClient.interceptors.request.use(
-        async (config)=>{
+        async (config) => {
             try {
-                const token = getToken()
-                if(token){
-                    config.headers.Authorization = `Bearer ${token}`
+                if (getTokenFunction) {
+                    const token = await getTokenFunction();
+                    if (token) {
+                        config.headers.Authorization = `Bearer ${token}`;
+                        console.log('✅ Token added to request');
+                    }
                 }
             } catch (error) {
-                console.error('Failed to get auth token:', error);
+                console.error('❌ Failed to get auth token:', error);
             }
+            console.log('📤 API Request:', config.method?.toUpperCase(), config.url);
             return config;
         },
-        (error)=>{
+        (error) => {
             return Promise.reject(error);
         }
-    );  apiClient.interceptors.response.use(
-        (response) => response,
+    );
+
+    // Response interceptor
+    apiClient.interceptors.response.use(
+        (response) => {
+            console.log('📥 API Response:', response.status, response.config.url);
+            return response;
+        },
         (error) => {
+            console.error('❌ API Error:', error.response?.status, error.config?.url);
             if (error.response?.status === 401) {
-                console.log('Unauthorized request');
+                console.log('🔒 Unauthorized - token may be invalid');
             }
             return Promise.reject(error);
         }

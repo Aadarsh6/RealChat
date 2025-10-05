@@ -1,13 +1,13 @@
 'use client';
 
-import { RedirectToUserProfile, useUser } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
 import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
 import axios from 'axios';
 import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
 import { useSocket } from "@/Context/socketContext";
-import { Rethink_Sans } from "next/font/google";
-import { emit } from "process";
+import { useApiSetup } from "@/hooks/userApi";
+import { messagesApi } from "@/lib/api";
 
 
     interface Message{
@@ -40,6 +40,8 @@ import { emit } from "process";
 
 
 const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
+
+    useApiSetup()
 
     const unwrappedParams = use(params);
     const { userId: paramUserId } = unwrappedParams;
@@ -83,7 +85,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
     const fetchMessages = async () => {
         try {
             setError(null);
-            const res = await axios.get(`/api/v1/messages?with=${paramUserId}`);
+            const res = await messagesApi.getConversation(paramUserId)
             setMessages(res.data);
             
             // Get other user info from the first message if available
@@ -94,6 +96,8 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
                 const other = firstMsg.sender.clerkId === user?.id ? firstMsg.receiver : firstMsg.sender;
                 setOtherUser(other);
             }
+
+            
         } catch (e: any) {
             console.error("Failed to fetch messages:", e);
             setError("Failed to load messages");
@@ -225,10 +229,10 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
         }
 
         try {
-            await axios.post("/api/v1/messages", {
-                receiverId: paramUserId,
-                content: messageToSend
-            });
+            await messagesApi.send({
+            receiverId: paramUserId,
+            content: messageToSend
+        });
             
             // message will come back through socket
             // await fetchMessages();

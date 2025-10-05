@@ -50,23 +50,18 @@ const browser = getBrowserName();
             transports = ['polling', 'websocket'];
         }
 
+// Around line 45, change:
+const socketUrl = process.env.NEXT_PUBLIC_BACKEND_WS_URL || 'http://localhost:5000';
 
-
-    const socketInstance = io(
-            process.env.NODE_ENV === 'production'
-                ? process.env.NEXT_PUBLIC_SITE_URL || ''
-                : 'http://localhost:3000',
-            {
-                path: '/api/socket.io', 
-                addTrailingSlash: false,
-                transports,
-                timeout: 20000,
-                reconnection: true,
-                reconnectionDelay: browser === 'brave' ? 2000 : 1000,
-                reconnectionDelayMax: 5000,
-                reconnectionAttempts: 5,
-            }
-        );
+const socketInstance = io(socketUrl, {
+    transports,
+    timeout: 20000,
+    reconnection: true,
+    reconnectionDelay: browser === 'brave' ? 2000 : 1000,
+    reconnectionDelayMax: 5000,
+    reconnectionAttempts: 5,
+    withCredentials: true
+}); 
 
         // Connection handlers
         socketInstance.on('connect', () => {

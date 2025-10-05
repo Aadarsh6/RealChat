@@ -1,11 +1,13 @@
 "use client";
 
-import { use, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth, UserButton, useUser } from '@clerk/nextjs';
 import axios from 'axios';
 import Link from 'next/link';
 import { ErrorMessage, PageLoading, UserListSkeleton } from '../Components/Navigation/LoadingSpinner';
 import { useSocket } from '@/Context/socketContext';
+import { useApiSetup } from '@/hooks/userApi';
+import { usersApi } from '@/lib/api';
 
 interface User {
     id: string;
@@ -25,12 +27,14 @@ const ChatListPage = () => {
 
     const { socket, isConnected } = useSocket()
 
+    useApiSetup();
+
     const fetchUsers = async () => {
         try {
             setIsLoading(true);
             setError(null);
             console.log('Fetching users...');
-            const res = await axios.get("/api/v1/users");
+            const res = await usersApi.getAll();
             console.log('Users fetched:', res.data);
             setUsers(res.data);
 
@@ -39,7 +43,7 @@ const ChatListPage = () => {
             const userWithStatus = await Promise.all(
                 res.data.map(async (user: User)=>{
                     try {
-                        const statusRes =  await axios.get(`api/v1/users/online?userId=${user.id}`);
+                        const statusRes = await usersApi.checkOnline(user.id);
                         return {...user, isOnline: statusRes.data.isOnline}
                     } catch (error) {
                         return {...user, isOnline: false}
