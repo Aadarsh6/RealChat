@@ -116,55 +116,87 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
 
     
     //Socket listeners no room logic
-    useEffect(()=>{
-        if(!socket || !user) return
+    //Socket listeners - real-time updates only
+useEffect(() => {
+    if (!socket || !user) return;
 
-        const handleNewMessages = (message: Message) => {
-            if((message.sender.clerkId === user.id && message.receiver.clerkId === paramUserId) || (message.sender.id === paramUserId && message.receiver.clerkId === user.id)){
-                setMessages(prev => {
-                    if(prev.find(m=> m.id === message.id)) return prev //!checks for duplicates (important since socket + API may both push the same message).
-                    return [...prev, message]
-                })
-            }
+    const handleNewMessages = (message: Message) => {
+        console.log('📨 Received new message via Socket:', message.id);
+        
+        // Check if message is for current conversation
+        if (
+            (message.sender.clerkId === user.id && message.receiver.id === paramUserId) || 
+            (message.sender.id === paramUserId && message.receiver.clerkId === user.id)
+        ) {
+            setMessages(prev => {
+                // Check for duplicates
+                if (prev.find(m => m.id === message.id)) {
+                    console.log('⚠️ Duplicate message, ignoring:', message.id);
+                    return prev;
+                }
+                console.log('✅ Adding message to chat:', message.id);
+                return [...prev, message];
+            });
         }
+    };
 
- // Listen for your own sent messages (for multi-device sync)
-        const handleMessageSent = (message: Message) => {
-            if((message.receiver.id === paramUserId)) {
-                setMessages(prev=> {
-                    if(prev.find(m=> m.id === message.id)) return prev
-                    return [...prev, message]
-                })
-            }
+    // Listen for your own sent messages (for multi-device sync)
+    const handleMessageSent = (message: Message) => {
+        console.log('📤 Message sent confirmation:', message.id);
+        
+        if (message.receiver.id === paramUserId) {
+            setMessages(prev => {
+                if (prev.find(m => m.id === message.id)) return prev;
+                return [...prev, message];
+            });
         }
+    };
 
-        //Typing indicator
-
-        const handleUserTyping =(data: {  formUserId: string, username: string})=>{
-            if(data.formUserId === paramUserId){
-                setOtherUserTyping(true)
-            }
+    // Typing indicator
+    const handleUserTyping = (data: { fromUserId: string, username: string }) => {
+        console.log('⌨️ User typing:', data.username);
+        if (data.fromUserId === paramUserId) {
+            setOtherUserTyping(true);
         }
+    };
 
-        const handleUserStopTyping = (data: { fromUserId: string }) => {
-            if(data.fromUserId === paramUserId){
-                setOtherUserTyping(false)
-            }
-        };
-        socket.on("new-message",handleNewMessages)
-        socket.on("message-sent", handleMessageSent)
-        socket.on("user-typing", handleUserTyping)
-        socket.on("user-stop-typing", handleUserStopTyping)
-
-        return ()=>{
-        socket.off("new-message",handleNewMessages)
-        socket.off("message-sent", handleMessageSent)
-        socket.off("user-typing", handleUserTyping)
-        socket.off("user-stop-typing", handleUserStopTyping)
+    const handleUserStopTyping = (data: { fromUserId: string }) => {
+        console.log('⌨️ User stopped typing');
+        if (data.fromUserId === paramUserId) {
+            setOtherUserTyping(false);
         }
-    },[user, paramUserId, socket])
+    };
 
-//!initial data loading
+    // Register all socket listeners
+    socket.on("new-message", handleNewMessages);
+    socket.on("message-sent", handleMessageSent);
+    socket.on("user-typing", handleUserTyping);
+    socket.on("user-stop-typing", handleUserStopTyping);
+
+    console.log('✅ Socket listeners registered for conversation:', paramUserId);
+
+    // Cleanup
+    return () => {
+        socket.off("new-message", handleNewMessages);
+        socket.off("message-sent", handleMessageSent);
+        socket.off("user-typing", handleUserTyping);
+        socket.off("user-stop-typing", handleUserStopTyping);
+        console.log('🧹 Socket listeners cleaned up');
+    };
+}, [user, paramUserId, socket]);
+
+//!initial data loading - ONLY ONCE
+useEffect(() => {
+    if (!isLoaded || !user) return;
+
+    setIsLoading(true);
+    Promise.all([fetchMessages(), fetchOtherUser()])
+        .finally(() => setIsLoading(false));
+    
+    // ✅ NO POLLING - Socket.io handles real-time updates!
+}, [paramUserId, isLoaded, user]);
+
+
 //?
 //TODO: Better and fast data fetching loading(batch loading)
 //?
