@@ -7,7 +7,7 @@ import axios from 'axios';
 import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
 import { useSocket } from "@/Context/socketContext";
 import { useApiSetup } from "@/hooks/userApi";
-import { messagesApi } from "@/lib/api";
+import { messagesApi, usersApi } from "@/lib/api";
 
 
     interface Message{
@@ -106,7 +106,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
 
     const fetchOtherUser = async () => {
         try {
-            const res = await axios.get("/api/v1/users");
+            const res = await usersApi.getAll();
             const other = res.data.find((u: any) => u.id === paramUserId);
             if (other) setOtherUser(other);
         } catch (e) {

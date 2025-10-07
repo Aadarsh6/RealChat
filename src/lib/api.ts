@@ -1,18 +1,18 @@
 import axios from 'axios';
 
-// IMPORTANT: Use backend URL, not frontend URL
+// Use separate backend server
 const API_BASE_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
 
-console.log('🔗 API Base URL:', API_BASE_URL); // Debug log
+console.log('🔗 Using backend server at:', API_BASE_URL); // Debug log
 
 // Create axios instance
 export const apiClient = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 10000,
+    timeout: 30000, // Increased timeout for backend calls
     headers: {
         'Content-Type': 'application/json',
     },
-    withCredentials: true
+    withCredentials: true, // Include cookies for CORS requests
 });
 
 // Auth token interceptor
