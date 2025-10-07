@@ -3,7 +3,6 @@
 import { useUser } from "@clerk/nextjs";
 import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
-import axios from 'axios';
 import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
 import { useSocket } from "@/Context/socketContext";
 import { useApiSetup } from "@/hooks/userApi";
@@ -175,9 +174,6 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
         setIsLoading(true);
         Promise.all([fetchMessages(), fetchOtherUser()])
             .finally(() => setIsLoading(false));
-        
-        const interval = setInterval(fetchMessages, 3000);
-        return () => clearInterval(interval);
     }, [paramUserId, isLoaded, user]);
 
 
