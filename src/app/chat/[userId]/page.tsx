@@ -195,85 +195,112 @@ useEffect(() => {
     
     // ✅ NO POLLING - Socket.io handles real-time updates!
 }, [paramUserId, isLoaded, user]);
-
-
-//?
-//TODO: Better and fast data fetching loading(batch loading)
-//?
-    useEffect(() => {
-        if (!isLoaded || !user) return;
-
-        setIsLoading(true);
-        Promise.all([fetchMessages(), fetchOtherUser()])
-            .finally(() => setIsLoading(false));
-    }, [paramUserId, isLoaded, user]);
-
-
-    // Simulate typing indicator
+    // Handle typing indicator
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setNewMessage(e.target.value);
         
-        if(!socket) return
+        if(!socket) return;
 
-//send typing to specific user
+        // Send typing to specific user
         if (!isTyping && e.target.value.trim()) {
             setIsTyping(true);
-        socket.emit('typing',{
-            toUserId: paramUserId,
-            fromUserId: user?.id,
-            username: user?.username || user?.firstName || "User"
-        })
+            socket.emit('typing',{
+                toUserId: paramUserId,
+                fromUserId: user?.id,
+                username: user?.username || user?.firstName || "User"
+            });
+        }
+
+        // Clear existing timeout
+        if(typingTimeoutRef.current){
+            clearTimeout(typingTimeoutRef.current);
+        }
+
+        // Set new timeout to stop typing
+        typingTimeoutRef.current = setTimeout(() => {
+            if(isTyping){
+                setIsTyping(false);
+                socket?.emit('stop-typing', {
+                    toUserId: paramUserId,
+                    fromUserId: user?.id
+                });
+            }
+        }, 2000);
+    };
+
+
+
+const sendMessage = async () => {
+    if (!newMessage.trim() || isSending || !user) return;
+    
+    const messageToSend = newMessage.trim();
+    const tempId = `temp-${Date.now()}`; // Temporary ID for optimistic update
+    
+//! This builds a fake message object that looks just like a real message from the server — but it’s generated locally.    
+const optimisticMessage: Message = {
+        id: tempId,
+        content: messageToSend,
+        createdAt: new Date().toISOString(),
+        sender: {
+            id: user.primaryEmailAddress?.id || '',
+            clerkId: user.id,
+            username: user.username || user.firstName || 'You',
+            name: user.fullName || user.firstName || '',
+            avatar: user.imageUrl || ''
+        },
+        receiver: {
+            id: otherUser?.id || paramUserId,
+            clerkId: otherUser?.clerkId || '',
+            username: otherUser?.username || '',
+            name: otherUser?.name || '',
+            avatar: otherUser?.avatar || ''
         }
     };
 
-    if(typingTimeoutRef.current){
-        clearTimeout(typingTimeoutRef.current)
+    // Add message to UI INSTANTLY
+    setMessages(prev => [...prev, optimisticMessage]);
+    setNewMessage(''); // Clear input immediately
+    inputRef.current?.focus(); // Keep focus on input
+    
+    // Stop typing indicator
+    if (isTyping && socket) {
+        setIsTyping(false);
+        socket.emit('stop-typing', {
+            toUserId: paramUserId,
+            fromUserId: user.id
+        });
     }
 
-    typingTimeoutRef.current = setTimeout(() => {
-        if(isTyping){
-            socket?.emit('stop-typing', {
-                toUserId: paramUserId,
-                fromUserId: user?.id
-            });
-        }
-    }, 2000);
-
-
-
-    const sendMessage = async () => {
-        if (!newMessage.trim() || isSending || !user) return;
-        
-        setIsSending(true);
-        const messageToSend = newMessage.trim();
-        setNewMessage(''); //claer the input feild
-        
-        if(isTyping && socket){
-            setIsTyping(false)
-            socket.emit('stop-typing', {
-                toUserId: paramUserId,
-                fromUserId: user.id
-            })
-        }
-
-        try {
-            console.log('📤 Sending message to:', paramUserId);
-            await messagesApi.send({
+    // Now send to server in background (no loading state needed)
+    try {
+        console.log('📤 Sending message to server:', paramUserId);
+        //! This calls your backend API (POST /api/messages) to store the message in the database and broadcast it to the receiver (via socket).
+        const response = await messagesApi.send({
             receiverId: paramUserId,
             content: messageToSend
         });
-            
-            // message will come back through socket
-            // await fetchMessages();
-        } catch (error: any) {
-            console.error("Failed to send message:", error);
-            setError("Failed to send message. Please try again.");
-            setNewMessage(messageToSend); // Restore message if failed
-        } finally {
-            setIsSending(false);
-            inputRef.current?.focus();
-        }
-    };
+
+//!When the server responds with the real message object (with a proper database id, timestamps, etc.),
+//! the temporary message is replaced with the confirmed one.
+        // Replace temporary message with real one from server
+        setMessages(prev => prev.map(msg => 
+            msg.id === tempId ? response.data : msg
+        ));
+        
+        console.log('✅ Message confirmed by server:', response.data.id);
+        
+    } catch (error: any) {
+        console.error("❌ Failed to send message:", error);
+        
+        // Remove failed message and show error
+        setMessages(prev => prev.filter(msg => msg.id !== tempId));
+        setError("Failed to send message. Please try again.");
+        setNewMessage(messageToSend); // Restore message
+        
+        // Optional: Show visual indicator that message failed
+        // You could also add a "retry" button here
+    }
+};
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -395,63 +422,57 @@ useEffect(() => {
                                     </p>
                                 </div>
                             ) : (
-                                messages.map((msg, index) => {
-                                    const isMyMessage = msg.sender.clerkId === user.id;
-                                    const showTime = index === 0 || 
-                                        new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000;
-                                    
-                                    return (
-                                        <div key={msg.id}>
-                                            {showTime && (
-                                                <div className="text-center text-xs text-gray-400 my-6">
-                                                    <div className="bg-gray-100 rounded-full px-3 py-1 inline-block">
-                                                        {new Date(msg.createdAt).toLocaleDateString()} at{' '}
-                                                        {new Date(msg.createdAt).toLocaleTimeString([], { 
-                                                            hour: '2-digit', 
-                                                            minute: '2-digit' 
-                                                        })}
-                                                    </div>
-                                                </div>
-                                            )}
-                                            <div className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
-                                                <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
-                                                    {!isMyMessage && (
-                                                        <div className="flex-shrink-0">
-                                                            {otherUser?.avatar ? (
-                                                                <img 
-                                                                    src={otherUser.avatar} 
-                                                                    alt=""
-                                                                    className="w-6 h-6 rounded-full object-cover"
-                                                                />
-                                                            ) : (
-                                                                <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center text-white text-xs font-medium">
-                                                                    {(otherUser?.name || otherUser?.username || 'U')[0].toUpperCase()}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                    <div
-                                                        className={`px-4 py-3 rounded-2xl break-words shadow-sm ${
-                                                            isMyMessage
-                                                                ? "bg-blue-500 text-white rounded-br-md"
-                                                                : "bg-white text-gray-900 border border-gray-200 rounded-bl-md"
-                                                        }`}
-                                                    >
-                                                        <div className="text-sm leading-relaxed">{msg.content}</div>
-                                                        <div className={`text-xs mt-1 ${
-                                                            isMyMessage ? 'text-blue-100' : 'text-gray-400'
-                                                        }`}>
-                                                            {new Date(msg.createdAt).toLocaleTimeString([], { 
-                                                                hour: '2-digit', 
-                                                                minute: '2-digit' 
-                                                            })}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })
+messages.map((msg, index) => {
+    const isMyMessage = msg.sender.clerkId === user.id;
+    const isPending = msg.id.startsWith('temp-'); // Check if it's a temporary message
+    const showTime = index === 0 || 
+        new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000;
+    
+    return (
+        <div key={msg.id}>
+            {/* ... existing time display code ... */}
+            
+            <div className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
+                <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
+                    {/* ... existing avatar code ... */}
+                    
+                    <div
+                        className={`px-4 py-3 rounded-2xl break-words shadow-sm ${
+                            isMyMessage
+                                ? `bg-blue-500 text-white rounded-br-md ${isPending ? 'opacity-70' : ''}`
+                                : "bg-white text-gray-900 border border-gray-200 rounded-bl-md"
+                        }`}
+                    >
+                        <div className="text-sm leading-relaxed">{msg.content}</div>
+                        <div className={`text-xs mt-1 flex items-center space-x-1 ${
+                            isMyMessage ? 'text-blue-100' : 'text-gray-400'
+                        }`}>
+                            <span>
+                                {new Date(msg.createdAt).toLocaleTimeString([], { 
+                                    hour: '2-digit', 
+                                    minute: '2-digit' 
+                                })}
+                            </span>
+                            {/* Add sending indicator */}
+                            {isPending && isMyMessage && (
+                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                                </svg>
+                            )}
+                            {/* Add checkmark when confirmed */}
+                            {!isPending && isMyMessage && (
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+                                </svg>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+})
                             )}
                             
                             {/* Typing indicator */}
@@ -519,18 +540,14 @@ useEffect(() => {
                             </div>
                         </div>
                         <button
-                            onClick={sendMessage}
-                            disabled={isSending || !newMessage.trim() || !isConnected}
-                            className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0"
-                        >
-                            {isSending ? (
-                                <LoadingSpinner size="sm" />
-                            ) : (
-                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                                </svg>
-                            )}
-                        </button>
+    onClick={sendMessage}
+    disabled={!newMessage.trim() || !isConnected}  // Remove isSending check
+    className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+>
+    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+    </svg>
+</button>
                     </div>
                 </div>
             </div>
