@@ -3,100 +3,81 @@
 import { useUser } from "@clerk/nextjs";
 import { useEffect, useState, useRef, use } from "react";
 import { useRouter } from "next/navigation";
-import { ChatSkeleton, ErrorMessage, LoadingSpinner, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
+import { ChatSkeleton, ErrorMessage, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
 import { useSocket } from "@/Context/socketContext";
 import { useApiSetup } from "@/hooks/userApi";
 import { messagesApi, usersApi } from "@/lib/api";
 
+interface Message {
+    id: string;
+    tempId?: string;
+    content: string;
+    createdAt: string;
+    status?: 'sending' | 'sent' | 'delivered' | 'failed';
+    sender: {
+        id: string;
+        clerkId: string;
+        username: string;
+        name: string;
+        avatar: string;
+    };
+    receiver: {
+        id: string;
+        clerkId: string;
+        username: string;
+        name: string;
+        avatar: string;
+    };
+}
 
-    interface Message{
-        id: string,
-        content: string,
-        createdAt: string,
-        sender:{
-            id: string,
-            clerkId: string,
-            username: string,
-            name: string,
-            avatar: string,
-        };
-        receiver:{
-            id: string,
-            clerkId: string,
-            username: string,
-            name: string,
-            avatar: string,
-        };
-    }
-
-    interface User{
-            id: string,
-            clerkId: string,
-            username: string,
-            name: string,
-            avatar: string,
-    }
-
+interface User {
+    id: string;
+    clerkId: string;
+    username: string;
+    name: string;
+    avatar: string;
+}
 
 const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
-
-    useApiSetup()
-
+    useApiSetup();
     const unwrappedParams = use(params);
     const { userId: paramUserId } = unwrappedParams;
-
     const { user, isLoaded } = useUser();
     const router = useRouter();
-    const [messages, setMessages] = useState<any[]>([]);
+    const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState("");
     const [isLoading, setIsLoading] = useState(false);
-    const [isSending, setIsSending] = useState(false);
-    const [otherUser, setOtherUser] = useState<any>(null);
+    const [otherUser, setOtherUser] = useState<User | null>(null);
     const [error, setError] = useState<string | null>(null);
-
     const [isTyping, setIsTyping] = useState(false);
-    const [otherUserTyping, setOtherUserTyping] = useState(false)
-
+    const [otherUserTyping, setOtherUserTyping] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout>();
+    const { socket, isConnected } = useSocket();
 
-    const { socket, isConnected } = useSocket()
-    //@ts-ignore
-    const typingTimeoutRef = useRef<NodeJS.Timeout>()
-
-
-    // Auto scroll to bottom when new messages arrive
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
 
     useEffect(() => {
         scrollToBottom();
-    }, [newMessage]);
+    }, [messages]);
 
-    // Focus input on mount
     useEffect(() => {
         inputRef.current?.focus();
     }, []);
 
-//get user previous messages
-
     const fetchMessages = async () => {
         try {
             setError(null);
-            const res = await messagesApi.getConversation(paramUserId)
+            const res = await messagesApi.getConversation(paramUserId);
             setMessages(res.data);
-            
-            // Get other user info from the first message if available
-            //!So this is a quick way to detect who you’re chatting with, without needing a separate request.
             if (res.data.length > 0) {
                 const firstMsg = res.data[0];
-                //!firstMsg.sender.clerkId === user?.id Checks if you (the logged-in user) were the sender of that first message.
                 const other = firstMsg.sender.clerkId === user?.id ? firstMsg.receiver : firstMsg.sender;
                 setOtherUser(other);
             }
-
-            
         } catch (e: any) {
             console.error("Failed to fetch messages:", e);
             setError("Failed to load messages");
@@ -113,112 +94,97 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
         }
     };
 
+    useEffect(() => {
+        if (!socket || !user) return;
+        console.log('🔌 Setting up socket-first message listeners');
 
-    
-    //Socket listeners no room logic
-    //Socket listeners - real-time updates only
-useEffect(() => {
-    if (!socket || !user) return;
+        const handleNewMessage = (message: Message) => {
+            console.log('📨 [RECEIVED] New message:', message.tempId || message.id);
+            if ((message.sender.clerkId === user.id && message.receiver.id === paramUserId) || (message.sender.id === paramUserId && message.receiver.clerkId === user.id)) {
+                setMessages(prev => {
+                    const exists = prev.find(m => m.id === message.id || (message.tempId && m.tempId === message.tempId));
+                    if (exists) {
+                        console.log('⚠️ Duplicate detected, ignoring');
+                        return prev;
+                    }
+                    console.log('✅ Adding new message to chat');
+                    return [...prev, { ...message, status: 'delivered' }];
+                });
+            }
+        };
 
-    const handleNewMessages = (message: Message) => {
-        console.log('📨 Received new message via Socket:', message.id);
-        
-        // Check if message is for current conversation
-        if (
-            (message.sender.clerkId === user.id && message.receiver.id === paramUserId) || 
-            (message.sender.id === paramUserId && message.receiver.clerkId === user.id)
-        ) {
-            setMessages(prev => {
-                // Check for duplicates
-                if (prev.find(m => m.id === message.id)) {
-                    console.log('⚠️ Duplicate message, ignoring:', message.id);
-                    return prev;
+        const handleMessageConfirmed = (data: { tempId: string; message: Message }) => {
+            console.log('✅ [CONFIRMED] Message saved to DB:', data.message.id);
+            setMessages(prev => prev.map(msg => {
+                if (msg.tempId === data.tempId) {
+                    return { ...data.message, status: 'sent' };
                 }
-                console.log('✅ Adding message to chat:', message.id);
-                return [...prev, message];
-            });
-        }
-    };
+                return msg;
+            }));
+        };
 
-    // Listen for your own sent messages (for multi-device sync)
-    const handleMessageSent = (message: Message) => {
-        console.log('📤 Message sent confirmation:', message.id);
-        
-        if (message.receiver.id === paramUserId) {
-            setMessages(prev => {
-                if (prev.find(m => m.id === message.id)) return prev;
-                return [...prev, message];
-            });
-        }
-    };
+        const handleMessageFailed = (data: { tempId: string; error?: string }) => {
+            console.error('❌ [FAILED] Message failed:', data.tempId);
+            setMessages(prev => prev.map(msg => {
+                if (msg.tempId === data.tempId) {
+                    return { ...msg, status: 'failed' };
+                }
+                return msg;
+            }));
+            setError(data.error || 'Message failed to send');
+        };
 
-    // Typing indicator
-    const handleUserTyping = (data: { fromUserId: string, username: string }) => {
-        console.log('⌨️ User typing:', data.username);
-        if (data.fromUserId === paramUserId) {
-            setOtherUserTyping(true);
-        }
-    };
+        const handleUserTyping = (data: { fromUserId: string; username: string }) => {
+            if (data.fromUserId === paramUserId) {
+                setOtherUserTyping(true);
+            }
+        };
 
-    const handleUserStopTyping = (data: { fromUserId: string }) => {
-        console.log('⌨️ User stopped typing');
-        if (data.fromUserId === paramUserId) {
-            setOtherUserTyping(false);
-        }
-    };
+        const handleUserStopTyping = (data: { fromUserId: string }) => {
+            if (data.fromUserId === paramUserId) {
+                setOtherUserTyping(false);
+            }
+        };
 
-    // Register all socket listeners
-    socket.on("new-message", handleNewMessages);
-    socket.on("message-sent", handleMessageSent);
-    socket.on("user-typing", handleUserTyping);
-    socket.on("user-stop-typing", handleUserStopTyping);
+        socket.on('new-message', handleNewMessage);
+        socket.on('message-confirmed', handleMessageConfirmed);
+        socket.on('message-failed', handleMessageFailed);
+        socket.on('user-typing', handleUserTyping);
+        socket.on('user-stop-typing', handleUserStopTyping);
+        console.log('✅ Socket listeners registered');
 
-    console.log('✅ Socket listeners registered for conversation:', paramUserId);
+        return () => {
+            socket.off('new-message', handleNewMessage);
+            socket.off('message-confirmed', handleMessageConfirmed);
+            socket.off('message-failed', handleMessageFailed);
+            socket.off('user-typing', handleUserTyping);
+            socket.off('user-stop-typing', handleUserStopTyping);
+            console.log('🧹 Socket listeners cleaned up');
+        };
+    }, [socket, user, paramUserId]);
 
-    // Cleanup
-    return () => {
-        socket.off("new-message", handleNewMessages);
-        socket.off("message-sent", handleMessageSent);
-        socket.off("user-typing", handleUserTyping);
-        socket.off("user-stop-typing", handleUserStopTyping);
-        console.log('🧹 Socket listeners cleaned up');
-    };
-}, [user, paramUserId, socket]);
+    useEffect(() => {
+        if (!isLoaded || !user) return;
+        setIsLoading(true);
+        Promise.all([fetchMessages(), fetchOtherUser()]).finally(() => setIsLoading(false));
+    }, [paramUserId, isLoaded, user]);
 
-//!initial data loading - ONLY ONCE
-useEffect(() => {
-    if (!isLoaded || !user) return;
-
-    setIsLoading(true);
-    Promise.all([fetchMessages(), fetchOtherUser()])
-        .finally(() => setIsLoading(false));
-    
-    // ✅ NO POLLING - Socket.io handles real-time updates!
-}, [paramUserId, isLoaded, user]);
-    // Handle typing indicator
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setNewMessage(e.target.value);
-        
-        if(!socket) return;
-
-        // Send typing to specific user
+        if (!socket || !isConnected) return;
         if (!isTyping && e.target.value.trim()) {
             setIsTyping(true);
-            socket.emit('typing',{
+            socket.emit('typing', {
                 toUserId: paramUserId,
                 fromUserId: user?.id,
                 username: user?.username || user?.firstName || "User"
             });
         }
-
-        // Clear existing timeout
-        if(typingTimeoutRef.current){
+        if (typingTimeoutRef.current) {
             clearTimeout(typingTimeoutRef.current);
         }
-
-        // Set new timeout to stop typing
         typingTimeoutRef.current = setTimeout(() => {
-            if(isTyping){
+            if (isTyping) {
                 setIsTyping(false);
                 socket?.emit('stop-typing', {
                     toUserId: paramUserId,
@@ -228,79 +194,50 @@ useEffect(() => {
         }, 2000);
     };
 
-
-
-const sendMessage = async () => {
-    if (!newMessage.trim() || isSending || !user) return;
-    
-    const messageToSend = newMessage.trim();
-    const tempId = `temp-${Date.now()}`; // Temporary ID for optimistic update
-    
-//! This builds a fake message object that looks just like a real message from the server — but it’s generated locally.    
-const optimisticMessage: Message = {
-        id: tempId,
-        content: messageToSend,
-        createdAt: new Date().toISOString(),
-        sender: {
-            id: user.primaryEmailAddress?.id || '',
-            clerkId: user.id,
-            username: user.username || user.firstName || 'You',
-            name: user.fullName || user.firstName || '',
-            avatar: user.imageUrl || ''
-        },
-        receiver: {
-            id: otherUser?.id || paramUserId,
-            clerkId: otherUser?.clerkId || '',
-            username: otherUser?.username || '',
-            name: otherUser?.name || '',
-            avatar: otherUser?.avatar || ''
+    const sendMessage = async () => {
+        if (!newMessage.trim() || !user || !socket || !isConnected) return;
+        const messageToSend = newMessage.trim();
+        const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const optimisticMessage: Message = {
+            id: tempId,
+            tempId: tempId,
+            content: messageToSend,
+            createdAt: new Date().toISOString(),
+            status: 'sending',
+            sender: {
+                id: user.primaryEmailAddress?.id || '',
+                clerkId: user.id,
+                username: user.username || user.firstName || 'You',
+                name: user.fullName || user.firstName || '',
+                avatar: user.imageUrl || ''
+            },
+            receiver: {
+                id: otherUser?.id || paramUserId,
+                clerkId: otherUser?.clerkId || '',
+                username: otherUser?.username || '',
+                name: otherUser?.name || '',
+                avatar: otherUser?.avatar || ''
+            }
+        };
+        console.log('📤 [SENDING] Message via socket:', tempId);
+        setMessages(prev => [...prev, optimisticMessage]);
+        setNewMessage('');
+        inputRef.current?.focus();
+        if (isTyping) {
+            setIsTyping(false);
+            socket.emit('stop-typing', {
+                toUserId: paramUserId,
+                fromUserId: user.id
+            });
         }
-    };
-
-    // Add message to UI INSTANTLY
-    setMessages(prev => [...prev, optimisticMessage]);
-    setNewMessage(''); // Clear input immediately
-    inputRef.current?.focus(); // Keep focus on input
-    
-    // Stop typing indicator
-    if (isTyping && socket) {
-        setIsTyping(false);
-        socket.emit('stop-typing', {
-            toUserId: paramUserId,
-            fromUserId: user.id
-        });
-    }
-
-    // Now send to server in background (no loading state needed)
-    try {
-        console.log('📤 Sending message to server:', paramUserId);
-        //! This calls your backend API (POST /api/messages) to store the message in the database and broadcast it to the receiver (via socket).
-        const response = await messagesApi.send({
+        socket.emit('send-message', {
             receiverId: paramUserId,
-            content: messageToSend
+            content: messageToSend,
+            tempId: tempId,
+            timestamp: optimisticMessage.createdAt
         });
-
-//!When the server responds with the real message object (with a proper database id, timestamps, etc.),
-//! the temporary message is replaced with the confirmed one.
-        // Replace temporary message with real one from server
-        setMessages(prev => prev.map(msg => 
-            msg.id === tempId ? response.data : msg
-        ));
-        
-        console.log('✅ Message confirmed by server:', response.data.id);
-        
-    } catch (error: any) {
-        console.error("❌ Failed to send message:", error);
-        
-        // Remove failed message and show error
-        setMessages(prev => prev.filter(msg => msg.id !== tempId));
-        setError("Failed to send message. Please try again.");
-        setNewMessage(messageToSend); // Restore message
-        
-        // Optional: Show visual indicator that message failed
-        // You could also add a "retry" button here
-    }
-};
+        console.log('✅ Message sent via socket');
+    };
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -309,15 +246,25 @@ const optimisticMessage: Message = {
         }
     };
 
-    // Loading state
+    const retryMessage = (msg: Message) => {
+        if (!socket || !isConnected) return;
+        console.log('🔄 Retrying message:', msg.tempId);
+        setMessages(prev => prev.map(m => m.tempId === msg.tempId ? { ...m, status: 'sending' } : m));
+        socket.emit('send-message', {
+            receiverId: paramUserId,
+            content: msg.content,
+            tempId: msg.tempId,
+            timestamp: msg.createdAt
+        });
+    };
+
     if (!isLoaded) {
         return <PageLoading text="Loading chat..." />;
     }
 
-    // Not authenticated
     if (!user) {
         return (
-            <div className="flex items-center justify-center min-h-screen overflow-auto">
+            <div className="flex items-center justify-center min-h-screen">
                 <div className="bg-white rounded-lg shadow-lg p-8 max-w-md text-center">
                     <div className="mb-6">
                         <svg className="w-16 h-16 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -325,12 +272,7 @@ const optimisticMessage: Message = {
                         </svg>
                     </div>
                     <h2 className="text-2xl font-bold text-gray-900 mb-4">Please log in to chat</h2>
-                    <button 
-                        onClick={() => router.push("/login")}
-                        className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors font-medium"
-                    >
-                        Go to Login
-                    </button>
+                    <button onClick={() => router.push("/login")} className="bg-blue-500 text-white px-6 py-3 rounded-lg hover:bg-blue-600 transition-colors font-medium">Go to Login</button>
                 </div>
             </div>
         );
@@ -338,44 +280,27 @@ const optimisticMessage: Message = {
 
     return (
         <div className="flex flex-col h-screen bg-gray-50">
-            {/* Header */}
             <div className="bg-white border-b border-gray-200 shadow-sm">
                 <div className="max-w-4xl mx-auto px-4 py-4">
                     <div className="flex items-center space-x-3">
-                        <button 
-                            onClick={() => router.push("/chat")}
-                            className="text-blue-500 hover:text-blue-600 p-2 rounded-full hover:bg-blue-50 transition-colors"
-                        >
+                        <button onClick={() => router.push("/chat")} className="text-blue-500 hover:text-blue-600 p-2 rounded-full hover:bg-blue-50 transition-colors">
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
-                        
                         {otherUser ? (
                             <>
                                 {otherUser.avatar ? (
-                                    <img 
-                                        src={otherUser.avatar} 
-                                        alt={otherUser.username || 'User'}
-                                        className="w-10 h-10 rounded-full object-cover border-2 border-blue-100"
-                                    />
+                                    <img src={otherUser.avatar} alt={otherUser.username || 'User'} className="w-10 h-10 rounded-full object-cover border-2 border-blue-100" />
                                 ) : (
-                                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">
-                                        {(otherUser.name || otherUser.username || 'U')[0].toUpperCase()}
-                                    </div>
+                                    <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center text-white font-bold">{(otherUser.name || otherUser.username || 'U')[0].toUpperCase()}</div>
                                 )}
                                 <div className="flex-1">
-                                    <div className="font-semibold text-gray-900">
-                                        {otherUser.name || otherUser.username}
-                                    </div>
-                                    {otherUser.name && otherUser.username && (
-                                        <div className="text-sm text-gray-500">@{otherUser.username}</div>
-                                    )}
+                                    <div className="font-semibold text-gray-900">{otherUser.name || otherUser.username}</div>
+                                    {otherUser.name && otherUser.username && (<div className="text-sm text-gray-500">@{otherUser.username}</div>)}
                                     <div className="flex items-center space-x-1 text-xs">
                                         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-400'}`}></div>
-                                        <span className={isConnected ? 'text-green-600' : 'text-gray-500'}>
-                                            {isConnected ? 'Online' : 'Offline'}
-                                        </span>
+                                        <span className={isConnected ? 'text-green-600' : 'text-gray-500'}>{isConnected ? 'Connected' : 'Connecting...'}</span>
                                     </div>
                                 </div>
                             </>
@@ -391,21 +316,11 @@ const optimisticMessage: Message = {
                     </div>
                 </div>
             </div>
-
-            {/* Messages area */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="flex-1 overflow-y-auto">
                 <div className="max-w-4xl mx-auto">
-                    {isLoading ? (
-                        <ChatSkeleton />
-                    ) : error ? (
+                    {isLoading ? (<ChatSkeleton />) : error ? (
                         <div className="p-4">
-                            <ErrorMessage 
-                                message={error} 
-                                onRetry={() => {
-                                    setError(null);
-                                    fetchMessages();
-                                }} 
-                            />
+                            <ErrorMessage message={error} onRetry={() => { setError(null); fetchMessages(); }} />
                         </div>
                     ) : (
                         <div className="p-4 space-y-4">
@@ -417,79 +332,86 @@ const optimisticMessage: Message = {
                                         </svg>
                                     </div>
                                     <h3 className="text-lg font-medium text-gray-900 mb-2">Start the conversation</h3>
-                                    <p className="text-gray-500 mb-4">
-                                        Send the first message to {otherUser?.name || otherUser?.username || 'this user'}!
-                                    </p>
+                                    <p className="text-gray-500 mb-4">Send the first message to {otherUser?.name || otherUser?.username || 'this user'}!</p>
                                 </div>
                             ) : (
-messages.map((msg, index) => {
-    const isMyMessage = msg.sender.clerkId === user.id;
-    const isPending = msg.id.startsWith('temp-'); // Check if it's a temporary message
-    const showTime = index === 0 || 
-        new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000;
-    
-    return (
-        <div key={msg.id}>
-            {/* ... existing time display code ... */}
-            
-            <div className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
-                <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
-                    {/* ... existing avatar code ... */}
-                    
-                    <div
-                        className={`px-4 py-3 rounded-2xl break-words shadow-sm ${
-                            isMyMessage
-                                ? `bg-blue-500 text-white rounded-br-md ${isPending ? 'opacity-70' : ''}`
-                                : "bg-white text-gray-900 border border-gray-200 rounded-bl-md"
-                        }`}
-                    >
-                        <div className="text-sm leading-relaxed">{msg.content}</div>
-                        <div className={`text-xs mt-1 flex items-center space-x-1 ${
-                            isMyMessage ? 'text-blue-100' : 'text-gray-400'
-                        }`}>
-                            <span>
-                                {new Date(msg.createdAt).toLocaleTimeString([], { 
-                                    hour: '2-digit', 
-                                    minute: '2-digit' 
-                                })}
-                            </span>
-                            {/* Add sending indicator */}
-                            {isPending && isMyMessage && (
-                                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
-                                </svg>
+                                messages.map((msg, index) => {
+                                    const isMyMessage = msg.sender.clerkId === user.id;
+                                    const showTime = index === 0 || new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000;
+                                    return (
+                                        <div key={msg.id || msg.tempId}>
+                                            {showTime && (
+                                                <div className="flex justify-center my-4">
+                                                    <div className="bg-gray-100 text-gray-600 text-xs px-3 py-1 rounded-full">{new Date(msg.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                                                </div>
+                                            )}
+                                            <div className={`flex ${isMyMessage ? 'justify-end' : 'justify-start'}`}>
+                                                <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
+                                                    {!isMyMessage && (
+                                                        <div className="flex-shrink-0">
+                                                            {msg.sender.avatar ? (
+                                                                <img src={msg.sender.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
+                                                            ) : (
+                                                                <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center text-white text-xs font-medium">{(msg.sender.name || msg.sender.username || 'U')[0].toUpperCase()}</div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        <div className={`px-4 py-3 rounded-2xl break-words shadow-sm ${isMyMessage ? `bg-blue-500 text-white rounded-br-md ${msg.status === 'sending' ? 'opacity-70' : msg.status === 'failed' ? 'opacity-50 bg-red-500' : ''}` : "bg-white text-gray-900 border border-gray-200 rounded-bl-md"}`}>
+                                                            <div className="text-sm leading-relaxed">{msg.content}</div>
+                                                            <div className={`text-xs mt-1 flex items-center space-x-1 ${isMyMessage ? 'text-blue-100' : 'text-gray-400'}`}>
+                                                                <span>{new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                                {isMyMessage && (
+                                                                    <>
+                                                                        {msg.status === 'sending' && (
+                                                                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                                                                            </svg>
+                                                                        )}
+                                                                        {msg.status === 'sent' && (
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+                                                                            </svg>
+                                                                        )}
+                                                                        {msg.status === 'delivered' && (
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 13l4 4L23 7"/>
+                                                                            </svg>
+                                                                        )}
+                                                                        {msg.status === 'failed' && (
+                                                                            <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                                                            </svg>
+                                                                        )}
+                                                                    </>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                        {msg.status === 'failed' && isMyMessage && (
+                                                            <button onClick={() => retryMessage(msg)} className="text-xs text-red-500 hover:text-red-600 mt-1 flex items-center space-x-1">
+                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                                </svg>
+                                                                <span>Retry</span>
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })
                             )}
-                            {/* Add checkmark when confirmed */}
-                            {!isPending && isMyMessage && (
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/>
-                                </svg>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-})
-                            )}
-                            
-                            {/* Typing indicator */}
                             {otherUserTyping && (
                                 <div className="flex justify-start">
                                     <div className="flex items-end space-x-2 max-w-xs lg:max-w-md">
                                         <div className="flex-shrink-0">
                                             {otherUser?.avatar ? (
-                                                <img 
-                                                    src={otherUser.avatar} 
-                                                    alt=""
-                                                    className="w-6 h-6 rounded-full object-cover"
-                                                />
+                                                <img src={otherUser.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
                                             ) : (
-                                                <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center text-white text-xs font-medium">
-                                                    {(otherUser?.name || otherUser?.username || 'U')[0].toUpperCase()}
-                                                </div>
+                                                <div className="w-6 h-6 bg-gray-400 rounded-full flex items-center justify-center text-white text-xs font-medium">{(otherUser?.name || otherUser?.username || 'U')[0].toUpperCase()}</div>
                                             )}
                                         </div>
                                         <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-md">
@@ -502,52 +424,44 @@ messages.map((msg, index) => {
                                     </div>
                                 </div>
                             )}
-                            
                             <div ref={messagesEndRef} />
                         </div>
                     )}
                 </div>
             </div>
-
-            {/* Input area */}
             <div className="border-t bg-white">
                 <div className="max-w-4xl mx-auto p-4">
+                    {!isConnected && (
+                        <div className="mb-2 px-3 py-2 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800 flex items-center space-x-2">
+                            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                            </svg>
+                            <span>Reconnecting... Messages will be sent when connected</span>
+                        </div>
+                    )}
                     <div className="flex items-end space-x-3">
                         <div className="flex-1">
-                            <input 
-                                ref={inputRef}
-                                type="text"
-                                value={newMessage}
-                                onChange={handleInputChange}
-                                onKeyDown={handleKeyDown}
-                                placeholder={`Message ${otherUser?.name || otherUser?.username || 'user'}...`}
-                                className="w-full border border-gray-300 text-black rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                                disabled={isSending || !isConnected}
-                                maxLength={1000}
-                            />
+                            <input ref={inputRef} type="text" value={newMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder={`Message ${otherUser?.name || otherUser?.username || 'user'}...`} className="w-full border border-gray-300 text-black rounded-2xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none disabled:bg-gray-100 disabled:cursor-not-allowed" disabled={!isConnected} maxLength={1000} />
                             <div className="flex justify-between items-center mt-1 px-2">
-                                <div className="text-xs text-gray-400">
-                                    {newMessage.length}/1000
-                                </div>
+                                <div className="text-xs text-gray-400">{newMessage.length}/1000</div>
                                 <div className="flex items-center space-x-2">
-                                    {!isConnected && (
-                                        <span className="text-xs text-red-500">Disconnected</span>
-                                    )}
-                                    {isTyping && (
-                                        <div className="text-xs text-blue-500">typing...</div>
-                                    )}
+                                    {isTyping && isConnected && (<div className="text-xs text-blue-500">typing...</div>)}
                                 </div>
                             </div>
                         </div>
-                        <button
-    onClick={sendMessage}
-    disabled={!newMessage.trim() || !isConnected}  // Remove isSending check
-    className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0"
->
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-    </svg>
-</button>
+                        <button onClick={sendMessage} disabled={!newMessage.trim() || !isConnected} className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-md hover:shadow-lg active:scale-95 transform transition-all" title={!isConnected ? "Connecting..." : "Send message"}>
+                            {isConnected ? (
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                                </svg>
+                            ) : (
+                                <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                                </svg>
+                            )}
+                        </button>
                     </div>
                 </div>
             </div>
