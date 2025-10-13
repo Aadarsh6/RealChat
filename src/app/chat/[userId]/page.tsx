@@ -1,7 +1,7 @@
 'use client';
 
 import { useUser } from "@clerk/nextjs";
-import { useEffect, useState, useRef, use } from "react";
+import { useEffect, useState, useRef, use, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { ChatSkeleton, ErrorMessage, PageLoading } from "@/app/Components/Navigation/LoadingSpinner";
 import { useSocket } from "@/Context/socketContext";
@@ -53,16 +53,16 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
     const [otherUserTyping, setOtherUserTyping] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
-    const typingTimeoutRef = useRef<NodeJS.Timeout>(null);
+    const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const { socket, isConnected } = useSocket();
 
-    const scrollToBottom = () => {
+    const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+    }, []);
 
     useEffect(() => {
         scrollToBottom();
-    }, [messages]);
+    }, [messages, scrollToBottom]);
 
     useEffect(() => {
         inputRef.current?.focus();
@@ -96,66 +96,51 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
 
     useEffect(() => {
         if (!socket || !user) return;
-        console.log('🔌 Setting up INSTANT message listeners');
+        console.log('🔌 Setting up ULTRA-FAST message listeners');
 
-        // INSTANT MESSAGE HANDLER - No duplicate checking needed!
+        // INSTANT MESSAGE HANDLER
         const handleNewMessage = (message: Message) => {
-            console.log('📨 [INSTANT RECEIVE]:', message.tempId || message.id);
+            console.log('📨 [INSTANT]:', message.tempId || message.id);
             
-            // Check if this message is for this conversation
             const isForThisConversation = 
                 (message.sender.clerkId === user.id && message.receiver.id === paramUserId) || 
                 (message.sender.id === paramUserId && message.receiver.clerkId === user.id);
             
-            if (!isForThisConversation) {
-                console.log('⚠️ Message not for this conversation');
-                return;
-            }
+            if (!isForThisConversation) return;
 
-            // Add message immediately - React will handle duplicates via key
             setMessages(prev => {
-                // If sender is me and message has tempId, don't add (already optimistically added)
+                // Skip if it's my own optimistic message
                 if (message.sender.clerkId === user.id && message.tempId) {
-                    console.log('⚠️ Skipping own message with tempId (already added optimistically)');
                     return prev;
                 }
                 
-                // Add message with delivered status
-                console.log('✅ Adding message to UI');
+                // Add immediately with delivered status
                 return [...prev, { ...message, status: 'delivered' }];
             });
         };
 
-        // MESSAGE CONFIRMED - Update tempId to real ID
+        // MESSAGE CONFIRMED - Update to real ID
         const handleMessageConfirmed = (data: { tempId: string; message: Message }) => {
-            console.log('✅ [DB SAVED] Updating tempId to real ID:', data.message.id);
+            console.log('✅ [CONFIRMED]:', data.message.id);
             
-            setMessages(prev => prev.map(msg => {
-                // Replace temp message with real message
-                if (msg.tempId === data.tempId) {
-                    return { 
-                        ...data.message, 
-                        status: msg.sender.clerkId === user.id ? 'sent' : 'delivered'
-                    };
-                }
-                return msg;
-            }));
+            setMessages(prev => prev.map(msg => 
+                msg.tempId === data.tempId 
+                    ? { ...data.message, status: msg.sender.clerkId === user.id ? 'sent' : 'delivered' }
+                    : msg
+            ));
         };
 
         // MESSAGE FAILED
         const handleMessageFailed = (data: { tempId: string; error?: string }) => {
             console.error('❌ [FAILED]:', data.tempId);
-            setMessages(prev => prev.map(msg => {
-                if (msg.tempId === data.tempId) {
-                    return { ...msg, status: 'failed' };
-                }
-                return msg;
-            }));
+            setMessages(prev => prev.map(msg => 
+                msg.tempId === data.tempId ? { ...msg, status: 'failed' } : msg
+            ));
             setError(data.error || 'Message failed to send');
         };
 
         // TYPING INDICATORS
-        const handleUserTyping = (data: { fromUserId: string; username: string }) => {
+        const handleUserTyping = (data: { fromUserId: string }) => {
             if (data.fromUserId === paramUserId) {
                 setOtherUserTyping(true);
             }
@@ -167,14 +152,13 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
             }
         };
 
-        // Register all listeners
         socket.on('new-message', handleNewMessage);
         socket.on('message-confirmed', handleMessageConfirmed);
         socket.on('message-failed', handleMessageFailed);
         socket.on('user-typing', handleUserTyping);
         socket.on('user-stop-typing', handleUserStopTyping);
         
-        console.log('✅ INSTANT message listeners registered');
+        console.log('✅ Listeners active');
 
         return () => {
             socket.off('new-message', handleNewMessage);
@@ -219,14 +203,14 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
         }, 2000);
     };
 
-    const sendMessage = async () => {
+    const sendMessage = useCallback(() => {
         if (!newMessage.trim() || !user || !socket || !isConnected) return;
         
         const messageToSend = newMessage.trim();
         const tempId = `temp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const timestamp = new Date().toISOString();
         
-        // INSTANT UI UPDATE - Add to sender's UI immediately
+        // INSTANT UI UPDATE
         const optimisticMessage: Message = {
             id: tempId,
             tempId: tempId,
@@ -249,14 +233,14 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
             }
         };
         
-        console.log('📤 [INSTANT SEND] Adding to UI:', tempId);
+        console.log('📤 [SEND]:', tempId);
         
-        // Add to UI instantly
+        // Add to UI first
         setMessages(prev => [...prev, optimisticMessage]);
         setNewMessage('');
         inputRef.current?.focus();
         
-        // Stop typing indicator
+        // Stop typing
         if (isTyping) {
             setIsTyping(false);
             socket.emit('stop-typing', {
@@ -265,7 +249,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
             });
         }
         
-        // Send via socket (receiver gets it in <50ms)
+        // Send via socket (non-blocking)
         socket.emit('send-message', {
             receiverId: paramUserId,
             content: messageToSend,
@@ -273,8 +257,8 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
             timestamp: timestamp
         });
         
-        console.log('✅ Message sent - receiver will get it instantly!');
-    };
+        console.log('✅ Sent');
+    }, [newMessage, user, socket, isConnected, otherUser, paramUserId, isTyping]);
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -285,7 +269,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
 
     const retryMessage = (msg: Message) => {
         if (!socket || !isConnected) return;
-        console.log('🔄 Retrying message:', msg.tempId);
+        console.log('🔄 Retry:', msg.tempId);
         
         setMessages(prev => prev.map(m => 
             m.tempId === msg.tempId ? { ...m, status: 'sending' } : m
@@ -342,7 +326,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
                                     {otherUser.name && otherUser.username && (<div className="text-sm text-gray-500">@{otherUser.username}</div>)}
                                     <div className="flex items-center space-x-1 text-xs">
                                         <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-gray-400'}`}></div>
-                                        <span className={isConnected ? 'text-green-600' : 'text-gray-500'}>{isConnected ? 'Connected - Instant Messaging' : 'Connecting...'}</span>
+                                        <span className={isConnected ? 'text-green-600' : 'text-gray-500'}>{isConnected ? 'Instant Messaging Active' : 'Connecting...'}</span>
                                     </div>
                                 </div>
                             </>
@@ -382,8 +366,6 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
                                 messages.map((msg, index) => {
                                     const isMyMessage = msg.sender.clerkId === user.id;
                                     const showTime = index === 0 || new Date(msg.createdAt).getTime() - new Date(messages[index - 1].createdAt).getTime() > 300000;
-                                    
-                                    // Use tempId or id as key
                                     const messageKey = msg.tempId || msg.id;
                                     
                                     return (
@@ -412,9 +394,8 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
                                                                 {isMyMessage && (
                                                                     <>
                                                                         {msg.status === 'sending' && (
-                                                                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
-                                                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                                                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+                                                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                                                             </svg>
                                                                         )}
                                                                         {msg.status === 'sent' && (
@@ -505,16 +486,14 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
                             />
                             <div className="flex justify-between items-center mt-1 px-2">
                                 <div className="text-xs text-gray-400">{newMessage.length}/1000</div>
-                                <div className="flex items-center space-x-2">
-                                    {isTyping && isConnected && (<div className="text-xs text-blue-500">typing...</div>)}
-                                </div>
+                                {isTyping && isConnected && (<div className="text-xs text-blue-500">typing...</div>)}
                             </div>
                         </div>
                         <button 
                             onClick={sendMessage} 
                             disabled={!newMessage.trim() || !isConnected} 
                             className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-md hover:shadow-lg active:scale-95 transform transition-all" 
-                            title={!isConnected ? "Connecting..." : "Send message (instant delivery!)"}
+                            title={!isConnected ? "Connecting..." : "Send message"}
                         >
                             {isConnected ? (
                                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
