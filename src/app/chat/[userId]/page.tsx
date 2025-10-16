@@ -492,7 +492,7 @@ const ChatPage = ({ params }: { params: Promise<{ userId: string }> }) => {
                         <button 
                             onClick={sendMessage} 
                             disabled={!newMessage.trim() || !isConnected} 
-                            className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors flex-shrink-0 shadow-md hover:shadow-lg active:scale-95 transform transition-all" 
+                            className="bg-blue-500 text-white p-3 rounded-full hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed flex-shrink-0 shadow-md hover:shadow-lg active:scale-95 transform transition-all" 
                             title={!isConnected ? "Connecting..." : "Send message"}
                         >
                             {isConnected ? (
